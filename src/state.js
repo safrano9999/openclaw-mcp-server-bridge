@@ -43,7 +43,8 @@ export function routeEpoch(cfg) {
   // Changes to routing/admission configuration revoke all old grants. Never log this input.
   return createHash('sha256').update(JSON.stringify([cfg.bindings, cfg.agents, cfg.channels, cfg.session])).digest('hex');
 }
-const keyOf = route => JSON.stringify([route.channel, route.accountId, route.to, route.threadId ?? null, route.sessionKey]);
+const keyOf = route => JSON.stringify([route.channel, route.accountId, route.to, route.threadId ?? null,
+  route.sessionKey, route.sessionId, route.policySessionKey, route.senderId, route.chatType]);
 export class Mailbox {
   constructor(limits = LIMITS, now = Date.now) {
     this.limits = { ...LIMITS, ...limits }; this.now = now;
@@ -69,10 +70,12 @@ export class Mailbox {
       this.seen.set(dedupe, this.now());
       while (this.seen.size > this.limits.dedupe) this.seen.delete(this.seen.keys().next().value);
     }
-    let existing = [...this.routes].find(([, r]) => r.key === key);
+    const existing = [...this.routes].find(([, r]) => r.key === key);
     const routeId = existing?.[0] ?? randomUUID();
+    const grant = existing?.[1] ?? { ...route, key };
+    grant.time = this.now();
     this.routes.delete(routeId);
-    this.routes.set(routeId, { ...route, key, time: this.now() });
+    this.routes.set(routeId, grant);
     while (this.routes.size > this.limits.routes) this.routes.delete(this.routes.keys().next().value);
     this.last = routeId;
     const body = String(message.text ?? '');

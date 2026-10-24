@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: '26.12.1'
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
@@ -40,8 +40,9 @@ jobs:
           OPENCLAW_CONFIG_PATH: ${{ runner.temp }}/openclaw-bridge-state/openclaw.json
         run: |
           npm run test:host
-          node_modules/.bin/openclaw plugins install --accept-capabilities "$PWD/openclaw-mcp-server-bridge-latest.zip"
+          node_modules/.bin/openclaw plugins install --force --accept-capabilities "$PWD/openclaw-mcp-server-bridge-latest.zip"
           node_modules/.bin/openclaw plugins inspect openclaw-mcp-server-bridge --json
+          node scripts/gateway-smoke.js
   release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: verify
@@ -53,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24.16.0'
+          node-version: '26.12.1'
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build

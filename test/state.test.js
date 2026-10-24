@@ -44,3 +44,12 @@ test('credential provisioning preserves existing tokens, removes retired agents,
   cfg.plugins.entries[ID].config.agentIds = ['missing'];
   assert.throws(() => settings(cfg), /unknown_agent/);
 });
+test('old route grants keep the original sender and session generation', () => {
+  const box = new Mailbox();
+  box.enqueue({ ...route, senderId: 'one', sessionId: 'old' }, { text: 'old message' });
+  const original = box.consume().messages[0].route_id;
+  box.enqueue({ ...route, senderId: 'two', sessionId: 'new' }, { text: 'new message' });
+  assert.equal(box.resolve({ route_id: original }).senderId, 'one');
+  assert.equal(box.resolve({ route_id: original }).sessionId, 'old');
+  assert.throws(() => box.resolve({ chat_id: '123' }), /ambiguous/);
+});

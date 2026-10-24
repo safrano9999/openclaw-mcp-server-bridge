@@ -8,7 +8,7 @@ Das Release enthält `openclaw-mcp-server-bridge-latest.zip` und eine SHA-256-Pr
 
 ```sh
 sha256sum -c openclaw-mcp-server-bridge-latest.zip.sha256
-openclaw plugins install --accept-capabilities ./openclaw-mcp-server-bridge-latest.zip
+openclaw plugins install --force --accept-capabilities ./openclaw-mcp-server-bridge-latest.zip
 ```
 
 In `openclaw.json` werden nur vorhandene Agenten ausgewählt:
