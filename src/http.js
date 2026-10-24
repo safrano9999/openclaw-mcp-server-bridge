@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
 import { BridgeError, LIMITS } from './state.js';
+import { serveBrowser } from './browser.js';
 
 const result = (data, isError = false) => ({ content: [{ type: 'text', text: JSON.stringify(data) }], structuredContent: data, ...(isError ? { isError: true } : {}) });
 function status(res, code, error) {
@@ -22,6 +23,7 @@ async function readBody(req) {
 export function createHttpHandler(bridge) {
   let active = 0;
   return async (req, res) => {
+    if (serveBrowser(req, res)) return true;
     res.setHeader('cache-control', 'no-store');
     let principal;
     try { principal = bridge.authorize(req.headers.authorization); }
@@ -38,7 +40,7 @@ export function createHttpHandler(bridge) {
     res.once('close', disconnect);
     const timer = setTimeout(() => { controller.abort(); status(res, 408, 'request_timeout'); req.destroy(); }, 60000);
     timer.unref();
-    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.3.0' });
+    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.3.1' });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     const completed = new Promise(resolve => { res.once('finish', resolve); res.once('close', resolve); });
     const invoke = operation => async (args) => {

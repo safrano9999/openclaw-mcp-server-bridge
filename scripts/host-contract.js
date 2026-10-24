@@ -6,7 +6,8 @@ import { parseAgentSessionKey } from 'openclaw/plugin-sdk/routing';
 import { sendDurableMessageBatch, buildOutboundSessionContext } from 'openclaw/plugin-sdk/channel-outbound';
 import { getSessionEntry, resolveStorePath, resolveSendPolicy, upsertSessionEntry } from 'openclaw/plugin-sdk/session-store-runtime';
 import plugin from '../dist/index.js';
-import { ID } from '../src/state.js';
+import { ID, PATH } from '../src/state.js';
+import { ICON_PATH } from '../src/browser.js';
 
 assert.equal(plugin.id, ID);
 assert.equal(typeof plugin.register, 'function');
@@ -25,13 +26,15 @@ try {
   let config = { agents: { entries: { 'bridge-test': {} } }, session: { store: join(scratch, 'sessions.json') },
     plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['bridge-test'], credentials: { 'bridge-test': 'a'.repeat(64) } } } } } };
   let hook, service, route;
+  const routes = [];
   plugin.register({ config, pluginConfig: config.plugins.entries[ID].config,
     runtime: { config: { current: () => config, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(config); await mutate(next); config = next; } } },
     logger: { info() {}, warn: message => { throw Error(message); } },
     on(name, handler) { assert.equal(name, 'reply_dispatch'); hook = handler; },
-    registerHttpRoute(value) { route = value; }, registerService(value) { service = value; }, registerCli() {},
+    registerHttpRoute(value) { routes.push(value); if (value.path === PATH) route = value; }, registerService(value) { service = value; }, registerCli() {},
   });
-  assert.equal(route.auth, 'plugin'); assert.equal(route.path, '/telegram-mcp');
+  assert.equal(route.auth, 'plugin'); assert.equal(route.path, '/mcp');
+  assert.deepEqual(routes.map(r => r.path).sort(), [PATH, ICON_PATH]);
   await service.start();
   const result = await hook({ sessionKey, sendPolicy: 'allow', originatingChannel: 'telegram', originatingTo: '123', originatingAccountId: 'default',
     ctx: { AgentId: 'bridge-test', SessionKey: sessionKey, InboundAccessAuthorized: true, rawText: 'host contract', ChatId: '123', MessageSid: '1' } },

@@ -33,7 +33,7 @@ openclaw mcp-bridge status
 openclaw mcp-bridge client-config carassistant --url https://your-gateway.example
 ```
 
-`client-config` deliberately outputs that agent’s bearer. Keep it private. The MCP endpoint is `/telegram-mcp` on the existing gateway; remote access uses its existing HTTPS proxy.
+`client-config` deliberately outputs that agent’s bearer. Keep it private. The MCP endpoint is `/mcp` on the existing gateway; remote access uses its existing HTTPS proxy. Opening `/mcp` in a browser shows a small connection page with its own favicon. The page and `/mcp/favicon.jpeg` are public static content; MCP calls require the assigned Bearer token.
 
 ## FIFO and current destination
 

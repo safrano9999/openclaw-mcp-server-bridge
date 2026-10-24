@@ -1,7 +1,7 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 export const ID = 'openclaw-mcp-server-bridge';
-export const PATH = '/telegram-mcp';
+export const PATH = '/mcp';
 export const LIMITS = Object.freeze({ queue: 1000, bytes: 8 * 1024 * 1024, text: 32768, dedupe: 8192, ttl: 86400000, batch: 100, sends: 8 });
 export class BridgeError extends Error {
   constructor(code) { super(code); this.code = code; }

@@ -1,5 +1,6 @@
 import { ID, PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, routeEpoch } from './state.js';
 import { createHttpHandler } from './http.js';
+import { ICON_PATH } from './browser.js';
 
 const HANDLED = Object.freeze({ handled: true, queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
 const bounded = value => typeof value === 'string' ? value.slice(0, 512) : undefined;
@@ -88,7 +89,8 @@ export function registerBridge(api, host) {
   const bridge = { authorize, assertPrincipal, origins: () => sync().conf.allowedOrigins,
     mailbox: principal => { assertPrincipal(principal); return box(principal.agentId); }, send };
 
-  api.registerHttpRoute({ path: PATH, auth: 'plugin', match: 'exact', handler: createHttpHandler(bridge) });
+  const handler = createHttpHandler(bridge);
+  for (const path of [PATH, ICON_PATH]) api.registerHttpRoute({ path, auth: 'plugin', match: 'exact', handler });
   api.on('reply_dispatch', (event, context) => {
     const ctx = event.ctx;
     const sessionKey = event.sessionKey ?? ctx.SessionKey;

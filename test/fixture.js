@@ -1,5 +1,5 @@
 import { registerBridge } from '../src/bridge.js';
-import { ID } from '../src/state.js';
+import { ID, PATH } from '../src/state.js';
 export async function fixture(options = {}) {
   let cfg = { agents: { entries: { alice: {}, bob: {}, normal: {} } },
     plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['alice', 'bob'],
@@ -9,7 +9,7 @@ export async function fixture(options = {}) {
     runtime: { config: { current: () => cfg, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(cfg); await mutate(next); cfg = next; } } },
     logger: { info: m => logs.push(m), warn: m => logs.push(m), ...options.logger },
     on: (name, fn, opts) => { captured.hook = fn; captured.hookOptions = opts; },
-    registerHttpRoute: route => { captured.route = route; },
+    registerHttpRoute: route => { (captured.routes ??= []).push(route); if (route.path === PATH) captured.route = route; },
     registerService: service => { captured.service = service; }, registerCli: fn => { captured.cli = fn; },
   };
   const host = {

@@ -47,7 +47,7 @@ for (let attempt = 0; attempt < 2; attempt++) {
         const current = JSON.parse(await readFile(configPath, 'utf8'));
         token = current.plugins.entries[ID].config.credentials?.['bridge-test'];
         if (token) {
-          const res = await fetch(`http://127.0.0.1:${port}/telegram-mcp`, { method: 'POST',
+          const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' },
             body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'pending_count', arguments: {} } }), signal: AbortSignal.timeout(3000) });
           if (res.ok) { const body = await res.json(); assert.equal(body.result.structuredContent.pending, 0); success = true; break; }
@@ -59,8 +59,14 @@ for (let attempt = 0; attempt < 2; attempt++) {
     assert.equal(token, bridgeToken, 'gateway must use the injected bearer');
     if (previousToken) assert.equal(token, previousToken, 'injected bearer must survive restart');
     previousToken = token;
-    const denied = await fetch(`http://127.0.0.1:${port}/telegram-mcp`);
+    const denied = await fetch(`http://127.0.0.1:${port}/mcp`);
     assert.equal(denied.status, 401);
+    const browser = await fetch(`http://127.0.0.1:${port}/mcp`, { headers: { Accept: 'text/html' } });
+    assert.equal(browser.status, 200);
+    assert.match(await browser.text(), /href="\/mcp\/favicon.jpeg"/);
+    const icon = await fetch(`http://127.0.0.1:${port}/mcp/favicon.jpeg`);
+    assert.equal(icon.status, 200);
+    assert.deepEqual(Buffer.from(await icon.arrayBuffer()), await readFile('assets/favicon.jpeg'));
     console.log(`Gateway start ${attempt + 1}: injected config, authenticated MCP request and isolation passed.`);
   } finally {
     child.kill('SIGTERM');

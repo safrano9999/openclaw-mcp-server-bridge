@@ -54,7 +54,7 @@ Unterscheide bestätigten Versand, Unterdrückung, Teilversand und unbekanntes E
 
 ## 7. HTTP, Authentifizierung und Ressourcen
 
-Registriere `/telegram-mcp` als exakte plugin-authentifizierte Route am vorhandenen Gateway. Keine Route anderer Plugins ersetzen, keinen zweiten Listener öffnen und keine Gateway-Admin-Scopes verlangen. Bearer-Principals werden ausschließlich serverseitig einem Agenten zugeordnet. Ein Tool-Argument `agentId` ist kein Autorisierungsmechanismus.
+Registriere `/mcp` als exakte plugin-authentifizierte Route am vorhandenen Gateway. Keine Route anderer Plugins ersetzen, keinen zweiten Listener öffnen und keine Gateway-Admin-Scopes verlangen. Bearer-Principals werden ausschließlich serverseitig einem Agenten zugeordnet. Ein Tool-Argument `agentId` ist kein Autorisierungsmechanismus.
 
 Use the explicitly supplied per-agent bearers generated with `openssl rand -hex 32` through `config.sh`. Keep the host `.env` as their source of truth and use the native config writer to install them. Do not regenerate credentials at gateway startup. Credentials must not appear in images, Git, release ZIPs, status logs or ordinary error messages. An explicit client-config command may show the operator the selected agent's bearer.
 
