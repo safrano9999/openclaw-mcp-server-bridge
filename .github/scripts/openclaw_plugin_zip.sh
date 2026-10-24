@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Source of truth: SCRIPTS/githubactions. Generated copies are overwritten.
+set -euo pipefail
+
+repo_name="$(basename "$PWD")"
+repo="${repo_name^^}"
+zip_name="${ZIP_NAME:-$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]')-latest.zip}"
+archive_list="${ARCHIVE_LIST:-/tmp/openclaw-plugin-archive-files.txt}"
+dev_only_re='(^|/)tag\.sh$'
+candidate_list="$(mktemp)"
+include_list="$(mktemp)"
+ignored_list="$(mktemp)"
+leak_list="$(mktemp)"
+trap 'rm -f "$candidate_list" "$include_list" "$ignored_list" "$leak_list"' EXIT
+
+case "$repo" in
+  DAILYNEWS) files=(README.md config.json openclaw.plugin.json package.json requirements.txt index.js generate.py scripts skills) ;;
+  CALENDAR) files=(README.md calendar_fetch.py config.json openclaw.plugin.json package.json requirements.txt index.js scripts) ;;
+  ZEROINBOX) files=(README.md provider.conf openclaw.plugin.json package.json requirements.txt index.js python_header.py openai_v1.py scripts skills zeroinbox) ;;
+  CITADEL) files=(README.md CITADEL_CLOUDFLARE.md GOAL_CLOUDFLARE_API.md CLOUDFLARE-API_ignore.json CLOUDFLARE-API_discovery.json.example CLOUDFLARE-API_access.json.example CLOUDFLARE_OAUTH_Whitelist.json.example CITADEL.png citadel.svg config.ini.example openclaw.plugin.json package.json requirements.txt index.js scan.sh set_daemon.sh unroute.sh webui.py assets extensions functions skills templates tests workers) ;;
+  KACHELMANN|KACHELMANN-MCP-ONLY) files=(README.md KACHELMANN_SOT.md OPENCLAW.md COACHING_ADVISES prompt.md mcp_server.py config.json openclaw.plugin.json package.json release.json requirements.txt index.js scripts kachelmann static templates webui.py) ;;
+  SPANKER) files=(README.md assets openclaw.plugin.json package.json requirements.txt index.js scripts spanker) ;;
+  WELCOME) files=(README.md openclaw.plugin.json package.json requirements.txt index.js scripts readme_welcome.py python_header.py) ;;
+  NOTE) files=(README.md openclaw.plugin.json package.json requirements.txt index.js prompt_default.md scripts note functions) ;;
+  OPENCLAW-MCP-SERVER-BRIDGE) files=(README.md openclaw.plugin.json package.json dist) ;;
+  NEXTCLOUD) files=(README.md calendar_fetch.py nextcloud_sync.py config.json openclaw.plugin.json package.json requirements.txt index.js scripts runtime) ;;
+  *) echo "Unsupported OpenClaw plugin repo: $repo" >&2; exit 2 ;;
+esac
+
+rm -f "$zip_name" "$zip_name.sha256"
+for path in "${files[@]}"; do
+  [ -e "$path" ] || continue
+  if [ -d "$path" ]; then
+    find "$path" -type f | sort
+  else
+    printf '%s\n' "$path"
+  fi
+done | grep -Ev "$dev_only_re" > "$candidate_list"
+for optional in config.sh python_header.py sqlite_persistence.sh optional_persistence.sh env.example config.conf_example container.example; do
+  [ -f "$optional" ] && printf '%s\n' "$optional" >> "$candidate_list"
+done
+git check-ignore --no-index --stdin < "$candidate_list" > "$ignored_list" || true
+grep -vxF -f "$ignored_list" "$candidate_list" > "$include_list"
+zip -q "$zip_name" -@ < "$include_list"
+sha256sum "$zip_name" > "$zip_name.sha256"
+zipinfo -1 "$zip_name" | tee "$archive_list"
+if [ "$repo" = ZEROINBOX ]; then
+  for required in python_header.py openai_v1.py; do
+    if ! grep -Fxq "$required" "$archive_list"; then
+      echo "Refusing to publish ZEROINBOX without $required." >&2
+      exit 1
+    fi
+  done
+fi
+if grep -E "$dev_only_re" "$archive_list" > "$leak_list"; then
+  cat "$leak_list"
+  echo "Refusing to publish archive with dev-only files." >&2
+  exit 1
+fi
+git check-ignore --no-index --stdin < "$archive_list" > "$leak_list" || true
+if [ -s "$leak_list" ]; then
+  cat "$leak_list"
+  echo "Refusing to publish archive with files ignored by .gitignore." >&2
+  exit 1
+fi
