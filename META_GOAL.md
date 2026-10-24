@@ -4,7 +4,7 @@ Du entwickelst und betreibst die private native OpenClaw-Erweiterung `openclaw-m
 
 ## 1. Ergebnis aus Sicht des Betreibers
 
-Nach Installation wählt der Betreiber in `openclaw.json` vorhandene Agenten über `plugins.entries.openclaw-mcp-server-bridge.config.agentIds` aus. Danach übernimmt die Erweiterung die technischen Details: Credentials, MCP-Endpunkt, Agententrennung, Queue-Lebensdauer, Verwendung vorhandener Kanalrouten und unmittelbarer Versand. Eine zweite Routingtabelle mit Bot-Token, Chat-ID, Account-ID oder Telegram-Topic darf nicht erforderlich werden. Die eigentliche Zuordnung einer Telegram-Unterhaltung zu einem OpenClaw-Agenten bleibt die bereits vorhandene OpenClaw-Konfiguration.
+The operator supplies repeatable `OPENCLAW_MCP_BRIDGE_AGENT` / `OPENCLAW_MCP_BRIDGE_BEARER` pairs through the host `.env`, with `_02`, `_03` suffixes for further agents. `config.sh` offers OpenSSL generation for each bearer. Initialization skips unknown agents and incomplete pairs and writes the remaining selection and credentials together through OpenClaw's native config writer. The extension never generates replacement credentials. Existing OpenClaw channel bindings supply the complete delivery route; no second bot-token/chat-ID routing table is needed.
 
 Der externe Agent ist ein MCP-Client. Der lokale OpenClaw-Agent bezeichnet die vom Gateway verwaltete Identität und Session-Zuordnung; er soll für übernommene gewöhnliche Kanalnachrichten keinen zusätzlichen Modelllauf ausführen. Der Gateway empfängt unabhängig davon weiter, ob ein Client gerade verbunden ist. Der Operator muss deshalb weder einen dauerhaften Client noch einen Polling-Worker starten, damit die Bridge Nachrichten annimmt.
 
@@ -56,7 +56,7 @@ Unterscheide bestätigten Versand, Unterdrückung, Teilversand und unbekanntes E
 
 Registriere `/telegram-mcp` als exakte plugin-authentifizierte Route am vorhandenen Gateway. Keine Route anderer Plugins ersetzen, keinen zweiten Listener öffnen und keine Gateway-Admin-Scopes verlangen. Bearer-Principals werden ausschließlich serverseitig einem Agenten zugeordnet. Ein Tool-Argument `agentId` ist kein Autorisierungsmechanismus.
 
-Generiere kryptographisch zufällige getrennte Credentials automatisch. Bewahre sie über einen dafür vorgesehenen Host-Config-Schreibweg auf, niemals durch unkoordiniertes Überschreiben der gesamten JSON-Datei. Credentials dürfen nicht im Image, Git, Release-ZIP, Status-Log oder normalen Fehlertext auftauchen. Ein expliziter CLI-Aufruf zur Client-Konfiguration darf dem Operator gezielt das eigene Bearer ausgeben.
+Use the explicitly supplied per-agent bearers generated with `openssl rand -hex 32` through `config.sh`. Keep the host `.env` as their source of truth and use the native config writer to install them. Do not regenerate credentials at gateway startup. Credentials must not appear in images, Git, release ZIPs, status logs or ordinary error messages. An explicit client-config command may show the operator the selected agent's bearer.
 
 Prüfe Authentifizierung vor Body-Verarbeitung und erneut bei Tool-Ausführung. Begrenze Body-Größe, Requests, parallele Sends und Request-Dauer. Validiere `Origin`; keine wildcardbasierte Freigabe, kein Bearer im Querystring. Behandle Disconnect, Abbruch, unvollständige Bodies und JSON-RPC-Fehler ohne Ressourcenlecks. MCP-Transporte sind request-scoped, die Geschäftslogik bleibt service-scoped. GET/DELETE dürfen bei der gewählten stateless-Ausprägung 405 liefern; dies muss mit einem echten MCP-Client getestet sein.
 

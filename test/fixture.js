@@ -2,7 +2,8 @@ import { registerBridge } from '../src/bridge.js';
 import { ID } from '../src/state.js';
 export async function fixture(options = {}) {
   let cfg = { agents: { entries: { alice: {}, bob: {}, normal: {} } },
-    plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['alice', 'bob'] } } } } };
+    plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['alice', 'bob'],
+      credentials: { alice: 'a'.repeat(64), bob: 'b'.repeat(43) } } } } } };
   const captured = {}; const sent = []; const logs = [];
   const api = {
     runtime: { config: { current: () => cfg, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(cfg); await mutate(next); cfg = next; } } },

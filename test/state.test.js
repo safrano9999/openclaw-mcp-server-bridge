@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Mailbox, settings, provision, authenticate, ID } from '../src/state.js';
+import { Mailbox, settings, authenticate, ID } from '../src/state.js';
 const route = { channel: 'telegram', accountId: 'bot-a', to: '123', chatId: '123', sessionKey: 'agent:alice:main' };
 test('FIFO consumes once even when independent clients call concurrently', async () => {
   const box = new Mailbox();
@@ -34,14 +34,21 @@ test('mixed-source FIFO entries never change the latest accepted destination whe
   assert.equal(box.consume().messages[0].text, 'second');
   assert.equal(box.resolve(), current);
 });
-test('credential provisioning preserves existing tokens, removes retired agents, isolates principals', () => {
-  const cfg = { agents: { list: [{ id: 'a' }, { id: 'b' }] }, plugins: { entries: { [ID]: { config: { agentIds: ['a', 'b'] } } } } };
-  const first = provision(cfg); cfg.plugins.entries[ID].config = first;
-  assert.deepEqual(provision(cfg), first);
-  assert.equal(authenticate(`Bearer ${first.credentials.a}`, first), 'a');
-  assert.equal(authenticate('Bearer wrong', first), undefined);
+test('injected hex and base64url bearers isolate principals without generating tokens', () => {
+  const cfg = { agents: { list: [{ id: 'a' }, { id: 'b' }] }, plugins: { entries: { [ID]: {
+    config: { agentIds: ['a', 'b'], credentials: { a: 'a'.repeat(64), b: 'b'.repeat(43) } },
+  } } } };
+  const before = structuredClone(cfg);
+  const conf = settings(cfg);
+  assert.deepEqual(cfg, before);
+  assert.equal(authenticate(`Bearer ${conf.credentials.a}`, conf), 'a');
+  assert.equal(authenticate(`Bearer ${conf.credentials.b}`, conf), 'b');
+  assert.equal(authenticate(`Bearer ${'c'.repeat(64)}`, conf), undefined);
+  assert.equal(authenticate('Bearer wrong', conf), undefined);
   cfg.plugins.entries[ID].config.agentIds = ['a'];
-  assert.deepEqual(Object.keys(provision(cfg).credentials), ['a']);
+  assert.equal(authenticate(`Bearer ${conf.credentials.b}`, settings(cfg)), undefined);
+  delete cfg.plugins.entries[ID].config.credentials.a;
+  assert.throws(() => settings(cfg), /missing_credentials/);
   cfg.plugins.entries[ID].config.agentIds = ['missing'];
   assert.throws(() => settings(cfg), /unknown_agent/);
 });
@@ -64,9 +71,12 @@ test('duplicates do not replace the current destination', () => {
   assert.equal(box.enqueue(route, { text: 'duplicate' }, '1'), false);
   assert.equal(box.resolve(), current);
 });
-test('agent names matching Object prototype fields still receive random credentials', () => {
-  const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: { agentIds: ['constructor'] } } } } };
-  const next = provision(cfg);
-  assert.match(next.credentials.constructor, /^[A-Za-z0-9_-]{43}$/);
-  assert.equal(authenticate(`Bearer ${next.credentials.constructor}`, next), 'constructor');
+test('prototype names require an explicitly supplied bearer', () => {
+  const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: {
+    agentIds: ['constructor'], credentials: {},
+  } } } } };
+  assert.throws(() => settings(cfg), /missing_credentials/);
+  cfg.plugins.entries[ID].config.credentials.constructor = 'c'.repeat(64);
+  const conf = settings(cfg);
+  assert.equal(authenticate(`Bearer ${conf.credentials.constructor}`, conf), 'constructor');
 });

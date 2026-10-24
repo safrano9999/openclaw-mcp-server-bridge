@@ -23,7 +23,7 @@ try {
   const context = buildOutboundSessionContext({ cfg: {}, sessionKey, agentId: 'bridge-test', conversationType: 'direct' });
   assert.equal(context.key, sessionKey); assert.equal(context.agentId, 'bridge-test');
   let config = { agents: { entries: { 'bridge-test': {} } }, session: { store: join(scratch, 'sessions.json') },
-    plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['bridge-test'] } } } } };
+    plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['bridge-test'], credentials: { 'bridge-test': 'a'.repeat(64) } } } } } };
   let hook, service, route;
   plugin.register({ config, pluginConfig: config.plugins.entries[ID].config,
     runtime: { config: { current: () => config, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(config); await mutate(next); config = next; } } },

@@ -1,46 +1,64 @@
 #!/usr/bin/env python3
-"""Apply the injected agent CSV after configuration generation, before the gateway."""
+"""Apply injected agent/bearer pairs after config generation, before the gateway."""
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 
 
 PLUGIN = "openclaw-mcp-server-bridge"
-VARIABLE = "OPENCLAW_MCP_BRIDGE_AGENTS"
+PREFIX = "OPENCLAW_MCP_BRIDGE_"
+PAIR_KEY = re.compile(r"^OPENCLAW_MCP_BRIDGE_(?:AGENT|BEARER)(_[0-9]+)?$")
+TOKEN = re.compile(r"[A-Za-z0-9_-]{43,128}")
 
 
-def selected_agents(value, config):
-    ids = list(dict.fromkeys(part.strip() for part in value.split(",") if part.strip()))
-    if len(ids) > 64 or any(not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name) for name in ids):
-        raise ValueError(f"{VARIABLE} must contain valid agent IDs")
+def selected_pairs(environ, config):
+    suffixes = {match.group(1) or "" for key in environ if (match := PAIR_KEY.fullmatch(key))}
     known = set(config.get("agents", {}).get("entries", {}))
     known.update(agent["id"] for agent in config.get("agents", {}).get("list", []))
-    if any(name not in known for name in ids):
-        raise ValueError(f"{VARIABLE} contains an unknown agent")
-    return ids
+    credentials = {}
+    for suffix in sorted(suffixes, key=lambda s: (int(s[1:]) if s else -1, s)):
+        name = environ.get(f"{PREFIX}AGENT{suffix}", "").strip()
+        token = environ.get(f"{PREFIX}BEARER{suffix}", "").strip()
+        if not name or not token or name not in known:
+            print(f"MCP bridge: skipped pair {suffix or 'default'} (unknown agent or incomplete pair)")
+            continue
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", name) or not TOKEN.fullmatch(token):
+            raise ValueError(f"MCP bridge: invalid agent or bearer in pair {suffix or 'default'}")
+        if name in credentials or token in credentials.values():
+            raise ValueError("MCP bridge: agent IDs and bearers must be unique")
+        credentials[name] = token
+    if len(credentials) > 64:
+        raise ValueError("MCP bridge: at most 64 agent/bearer pairs are supported")
+    return list(credentials), credentials
 
 
 def configure(environ=os.environ, runner=subprocess.run):
     # An absent variable leaves independently managed bare-metal config intact.
-    if VARIABLE not in environ:
+    if not any(PAIR_KEY.fullmatch(key) for key in environ):
         return False
     state = environ.get("OPENCLAW_STATE_DIR") or environ.get("OPENCLAW_HOME")
     default = Path(state) if state else Path(environ.get("HOME", "/root")) / ".openclaw"
     path = Path(environ.get("OPENCLAW_CONFIG") or environ.get("OPENCLAW_CONFIG_PATH") or default / "openclaw.json").expanduser().resolve()
     config = json.loads(path.read_text())
-    ids = selected_agents(environ[VARIABLE], config)
+    ids, credentials = selected_pairs(environ, config)
     entry = config.get("plugins", {}).get("entries", {}).get(PLUGIN)
     if entry is None:
         if ids:
             raise ValueError("MCP bridge must be installed and registered before initialization")
         return False
-    if entry.get("config", {}).get("agentIds", []) == ids:
+    previous = entry.get("config", {})
+    updated = {**previous, "agentIds": ids, "credentials": credentials}
+    if previous == updated:
         return False
-    runner(["openclaw", "config", "set", f"plugins.entries.{PLUGIN}.config.agentIds",
-            json.dumps(ids), "--strict-json"], check=True,
-           env={**environ, "OPENCLAW_CONFIG": str(path), "OPENCLAW_CONFIG_PATH": str(path)})
+    # A private batch file keeps bearer values out of command-line arguments.
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as batch:
+        json.dump([{"path": f"plugins.entries.{PLUGIN}.config", "value": updated}], batch)
+        batch.flush()
+        runner(["openclaw", "config", "set", "--batch-file", batch.name], check=True,
+               env={**environ, "OPENCLAW_CONFIG": str(path), "OPENCLAW_CONFIG_PATH": str(path)})
     print(f"MCP bridge initialized: {len(ids)} selected agent(s)")
     return True
 

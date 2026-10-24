@@ -1,4 +1,4 @@
-import { ID, PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, provision, routeEpoch } from './state.js';
+import { ID, PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, routeEpoch } from './state.js';
 import { createHttpHandler } from './http.js';
 
 const HANDLED = Object.freeze({ handled: true, queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
@@ -144,18 +144,6 @@ export function registerBridge(api, host) {
     reload: { configPrefixes: [`plugins.entries.${ID}`, 'agents', 'bindings', 'channels', 'session'] },
     async start() {
       ready = false;
-      const before = settings(cfgNow());
-      if (before.agentIds.some(id => !Object.hasOwn(before.credentials, id)) || Object.keys(before.credentials).some(id => !before.agentIds.includes(id))) {
-        await api.runtime.config.mutateConfigFile({
-          afterWrite: { mode: 'none', reason: 'Bridge adopts its own managed credentials during service startup' },
-          mutate(draft) {
-            const next = provision(draft);
-            const entry = draft.plugins?.entries?.[ID];
-            if (!entry) throw new BridgeError('missing_plugin_entry');
-            entry.config = { ...entry.config, credentials: next.credentials };
-          },
-        });
-      }
       sync(); ready = true;
       api.logger.info(`MCP bridge ready at ${PATH}; ${settings(cfgNow()).agentIds.length} selected agent(s)`);
     },

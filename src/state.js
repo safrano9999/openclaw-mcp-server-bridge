@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 export const ID = 'openclaw-mcp-server-bridge';
 export const PATH = '/telegram-mcp';
@@ -17,25 +17,21 @@ export function settings(cfg) {
   const credentials = value.credentials ?? {};
   if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) throw new BridgeError('invalid_credentials');
   const tokens = Object.values(credentials);
-  if (tokens.some(t => typeof t !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(t)) || new Set(tokens).size !== tokens.length) throw new BridgeError('invalid_credentials');
+  if (tokens.some(t => typeof t !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(t)) || new Set(tokens).size !== tokens.length) throw new BridgeError('invalid_credentials');
+  if (ids.some(id => !Object.hasOwn(credentials, id))) throw new BridgeError('missing_credentials');
   const allowedOrigins = value.allowedOrigins ?? [];
   if (!Array.isArray(allowedOrigins) || allowedOrigins.length > 16 || allowedOrigins.some(o => {
     try { return new URL(o).origin !== o || !/^https?:/.test(o) || o.length > 256; } catch { return true; }
   })) throw new BridgeError('invalid_origins');
   return { agentIds: ids, credentials, allowedOrigins };
 }
-export function provision(cfg) {
-  const value = settings(cfg);
-  const credentials = Object.fromEntries(value.agentIds.map(id => [id, Object.hasOwn(value.credentials, id) ? value.credentials[id] : randomBytes(32).toString('base64url')]));
-  return { ...value, credentials };
-}
 export function authenticate(header, config) {
-  if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9_-]{43}$/i.test(header)) return undefined;
+  if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9_-]{43,128}$/i.test(header)) return undefined;
   const supplied = Buffer.from(header.slice(7));
   let owner;
   for (const id of config.agentIds) {
     const token = Object.hasOwn(config.credentials, id) ? config.credentials[id] : undefined;
-    if (token && timingSafeEqual(supplied, Buffer.from(token))) owner = id;
+    if (token && supplied.length === Buffer.byteLength(token) && timingSafeEqual(supplied, Buffer.from(token))) owner = id;
   }
   return owner;
 }

@@ -15,6 +15,7 @@ await new Promise(resolve => available.listen(0, '127.0.0.1', resolve));
 const port = available.address().port;
 await new Promise(resolve => available.close(resolve));
 const gatewayToken = randomBytes(32).toString('hex');
+const bridgeToken = randomBytes(32).toString('hex');
 cfg.gateway = { mode: 'local', port, bind: 'loopback', auth: { mode: 'token', token: gatewayToken }, controlUi: { enabled: false } };
 cfg.agents = { entries: { 'bridge-test': {} } };
 cfg.plugins ??= {}; cfg.plugins.entries ??= {};
@@ -23,9 +24,11 @@ await writeFile(configPath, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 }
 execFileSync('python3', ['image/init/20-openclaw-mcp-bridge.py'], {
   env: { ...process.env, PATH: `${process.cwd()}/node_modules/.bin:${process.env.PATH}`,
     OPENCLAW_CONFIG: configPath, OPENCLAW_CONFIG_PATH: configPath,
-    OPENCLAW_MCP_BRIDGE_AGENTS: 'bridge-test' }, stdio: 'inherit',
+    OPENCLAW_MCP_BRIDGE_AGENT: 'bridge-test', OPENCLAW_MCP_BRIDGE_BEARER: bridgeToken,
+    OPENCLAW_MCP_BRIDGE_AGENT_02: 'missing-agent', OPENCLAW_MCP_BRIDGE_BEARER_02: randomBytes(32).toString('hex') }, stdio: 'inherit',
 });
 assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.agentIds, ['bridge-test']);
+assert.equal(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.credentials['bridge-test'], bridgeToken);
 let previousToken;
 for (let attempt = 0; attempt < 2; attempt++) {
   const child = spawn('node_modules/.bin/openclaw', ['gateway', 'run', '--allow-unconfigured'], {
@@ -53,11 +56,12 @@ for (let attempt = 0; attempt < 2; attempt++) {
       await delay(500);
     }
     if (!success) throw Error(`Gateway bridge smoke failed (exit ${exit ?? 'running'}).\n${output.replaceAll(gatewayToken, '[redacted]').replaceAll(token ?? 'unlikely-token-placeholder', '[redacted]')}`);
-    if (previousToken) assert.equal(token, previousToken, 'managed bearer must survive restart');
+    assert.equal(token, bridgeToken, 'gateway must use the injected bearer');
+    if (previousToken) assert.equal(token, previousToken, 'injected bearer must survive restart');
     previousToken = token;
     const denied = await fetch(`http://127.0.0.1:${port}/telegram-mcp`);
     assert.equal(denied.status, 401);
-    console.log(`Gateway start ${attempt + 1}: managed config write, authenticated MCP request and isolation passed.`);
+    console.log(`Gateway start ${attempt + 1}: injected config, authenticated MCP request and isolation passed.`);
   } finally {
     child.kill('SIGTERM');
     await Promise.race([exited, delay(10000)]);
