@@ -95,7 +95,9 @@ export function registerBridge(api, host) {
     const parsed = sessionKey ? host.parseAgentSessionKey(sessionKey)?.agentId : undefined;
     const agentId = ctx.AgentId ?? parsed;
     // Read only the allowlist before validation so selected agents also fail closed during startup/config errors.
-    const selected = cfgNow().plugins?.entries?.[ID]?.config?.agentIds;
+    const pluginEntry = cfgNow().plugins?.entries?.[ID];
+    if (pluginEntry?.enabled === false) return;
+    const selected = pluginEntry?.config?.agentIds;
     if (!Array.isArray(selected) || (!selected.includes(agentId) && !selected.includes(parsed))) return;
     if (ctx.InternalTurnSource) return; // Cron/heartbeat is outside this channel bridge's scope.
     let outcome = 'completed'; let reason = 'mcp_bridge_enqueued';
@@ -129,7 +131,7 @@ export function registerBridge(api, host) {
       if (!accepted) reason = 'mcp_bridge_duplicate_or_overflow';
     } catch (error) {
       outcome = 'skipped'; reason = `mcp_bridge_${error instanceof BridgeError ? error.code : 'capture_failed'}`;
-      api.logger.warn(reason); // No message bodies, bearer values or raw adapter errors.
+      try { api.logger.warn(reason); } catch { /* diagnostics cannot release a claimed turn */ }
     }
     // Lifecycle callback errors must never let a selected turn fall through to an LLM.
     try { context.recordProcessed(outcome, { reason }); } catch { /* host diagnostics only */ }

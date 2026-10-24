@@ -6,7 +6,7 @@ export async function fixture(options = {}) {
   const captured = {}; const sent = []; const logs = [];
   const api = {
     runtime: { config: { current: () => cfg, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(cfg); await mutate(next); cfg = next; } } },
-    logger: { info: m => logs.push(m), warn: m => logs.push(m) },
+    logger: { info: m => logs.push(m), warn: m => logs.push(m), ...options.logger },
     on: (name, fn, opts) => { captured.hook = fn; captured.hookOptions = opts; },
     registerHttpRoute: route => { captured.route = route; },
     registerService: service => { captured.service = service; }, registerCli: fn => { captured.cli = fn; },

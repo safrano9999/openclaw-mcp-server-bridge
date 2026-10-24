@@ -69,3 +69,11 @@ test('restart clears queues and route grants but preserves managed credentials',
   assert.equal(f.header(), token); assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
   await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /unknown_or_expired/);
 });
+test('disabled plugin releases dispatch and broken diagnostics cannot release a selected turn', async () => {
+  const f = await fixture({ logger: { warn() { throw Error('logger failed'); } } });
+  f.config().plugins.entries[ID].enabled = false;
+  assert.equal(f.receive(), undefined);
+  f.config().plugins.entries[ID].enabled = true;
+  f.host.getSessionEntry = () => { throw Error('read failure'); };
+  assert.equal(f.receive().handled, true);
+});
