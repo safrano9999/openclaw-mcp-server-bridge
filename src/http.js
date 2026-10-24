@@ -38,7 +38,7 @@ export function createHttpHandler(bridge) {
     res.once('close', disconnect);
     const timer = setTimeout(() => { controller.abort(); status(res, 408, 'request_timeout'); req.destroy(); }, 60000);
     timer.unref();
-    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.1.1' });
+    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.2.0' });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     const completed = new Promise(resolve => { res.once('finish', resolve); res.once('close', resolve); });
     const invoke = operation => async (args) => {
@@ -59,8 +59,8 @@ export function createHttpHandler(bridge) {
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     }, invoke(() => bridge.mailbox(principal).count()));
     server.registerTool('send_message', {
-      description: 'Send text using an admitted OpenClaw route owned by this agent. Prefer the route_id from new_message. With neither target, use this agent’s last admitted route in this Gateway lifetime. Ambiguous chat_id is rejected. Do not blindly retry unknown or partial delivery.',
-      inputSchema: { text: z.string().min(1).max(LIMITS.text), route_id: z.string().uuid().optional(), chat_id: z.string().min(1).max(512).optional() },
+      description: 'Send text to the source of this agent’s most recently accepted incoming message. The current destination is independent of FIFO consumption and cannot be overridden by the client. Do not blindly retry unknown or partial delivery.',
+      inputSchema: { text: z.string().min(1).max(LIMITS.text) },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     }, invoke(args => bridge.send(principal, args, controller.signal)));
     try {

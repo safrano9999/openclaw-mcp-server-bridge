@@ -23,15 +23,16 @@ test('overflow, expiry, truncation, dedupe and count bounds are explicit', () =>
   assert.throws(() => box.resolve(), /unknown_or_expired/);
   for (const n of [0, -1, 101, NaN, 1.5]) assert.throws(() => box.consume(n), /invalid_count/);
 });
-test('chat ambiguity across bots/topics requires an opaque route_id', () => {
+test('mixed-source FIFO entries never change the latest accepted destination when consumed', () => {
   const box = new Mailbox();
   box.enqueue({ ...route, threadId: 1 }, { text: 'first' });
-  box.enqueue({ ...route, threadId: 2 }, { text: 'second' });
-  const messages = box.consume(2).messages;
-  assert.throws(() => box.resolve({ chat_id: '123' }), /ambiguous/);
-  assert.equal(box.resolve({ route_id: messages[0].route_id }).threadId, 1);
+  box.enqueue({ ...route, channel: 'discord', to: '456', threadId: 2 }, { text: 'second' });
+  assert.equal(box.consume().messages[0].channel, 'telegram');
+  assert.equal(box.resolve().channel, 'discord');
   assert.equal(box.resolve().threadId, 2);
-  assert.throws(() => box.resolve({ chat_id: 'other', route_id: messages[0].route_id }), /unknown/);
+  const current = box.resolve();
+  assert.equal(box.consume().messages[0].text, 'second');
+  assert.equal(box.resolve(), current);
 });
 test('credential provisioning preserves existing tokens, removes retired agents, isolates principals', () => {
   const cfg = { agents: { list: [{ id: 'a' }, { id: 'b' }] }, plugins: { entries: { [ID]: { config: { agentIds: ['a', 'b'] } } } } };
@@ -44,14 +45,24 @@ test('credential provisioning preserves existing tokens, removes retired agents,
   cfg.plugins.entries[ID].config.agentIds = ['missing'];
   assert.throws(() => settings(cfg), /unknown_agent/);
 });
-test('old route grants keep the original sender and session generation', () => {
+test('a new accepted source replaces the only route without rewriting queued messages', () => {
   const box = new Mailbox();
   box.enqueue({ ...route, senderId: 'one', sessionId: 'old' }, { text: 'old message' });
-  const original = box.consume().messages[0].route_id;
+  const original = box.resolve();
   box.enqueue({ ...route, senderId: 'two', sessionId: 'new' }, { text: 'new message' });
-  assert.equal(box.resolve({ route_id: original }).senderId, 'one');
-  assert.equal(box.resolve({ route_id: original }).sessionId, 'old');
-  assert.throws(() => box.resolve({ chat_id: '123' }), /ambiguous/);
+  assert.notEqual(box.resolve().route_id, original.route_id);
+  assert.equal(box.resolve().senderId, 'two');
+  assert.equal(box.resolve().sessionId, 'new');
+  assert.deepEqual(box.consume(2).messages.map(m => m.text), ['old message', 'new message']);
+  assert.equal(box.resolve().senderId, 'two');
+});
+test('duplicates do not replace the current destination', () => {
+  const box = new Mailbox();
+  box.enqueue(route, { text: 'first' }, '1');
+  box.enqueue({ ...route, channel: 'discord' }, { text: 'second' }, '2');
+  const current = box.resolve();
+  assert.equal(box.enqueue(route, { text: 'duplicate' }, '1'), false);
+  assert.equal(box.resolve(), current);
 });
 test('agent names matching Object prototype fields still receive random credentials', () => {
   const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: { agentIds: ['constructor'] } } } } };

@@ -38,17 +38,15 @@ Es gibt ausdrücklich keinen persistenten Inbox-Journal und keine nachträgliche
 
 Begrenze Anzahl, Bytes und Alter. Das erste Release verwendet 1.000 Nachrichten beziehungsweise 8 MiB je Agent, 32.768 Textzeichen, 24 Stunden TTL und Batchgröße 1–100. Overflow entfernt ältere Einträge nachvollziehbar und erhöht einen sichtbaren Zähler. TTL, Overflow, Trunkierung und Duplikatunterdrückung müssen eigene überprüfbare Ergebnisse haben. Dedupliziere mit Konto-/Routenkontext, sodass gleiche numerische Telegram-Nachrichten-IDs verschiedener Chats nicht kollidieren.
 
-## 5. Routen als serverseitige Berechtigungen
+## 5. Current return route (operator-approved contract)
 
-Eine `route_id` ist eine zufällige Referenz auf eine serverseitig gespeicherte, agenteneigene Berechtigung. Sie ist keine frei interpretierbare Zeichenkette, keine kodierte URL und kein vom Client wählbares Konto. Die zugehörigen Fakten umfassen mindestens Kanal, Konto, Versandziel, Topic/Thread, kanonische Session und deren Generation. Requester-/Sender-Kontext gehört ebenfalls zur Berechtigung, damit ein späterer anderer Teilnehmer einer Gruppe die Rechte einer älteren Nachricht nicht verändert.
+Each agent has one `actual_channel` / current route, independent of FIFO entries. Every newly accepted incoming message replaces that complete return route. Source metadata remains attached to each FIFO entry, but consuming an entry never changes the outgoing destination. There is no history of selectable route grants.
 
-Ein neuer Eingang derselben Unterhaltung darf die ursprüngliche Route einer bereits ausgegebenen Nachricht nicht auf eine andere Session oder einen anderen Sender umbiegen. Eine konsumierte Nachricht darf noch beantwortet werden, solange ihr Route-Grant gültig ist. Route-Speicher und Queue sind deshalb getrennt begrenzt. Wenn mehrere Routen denselben `chat_id` besitzen, muss der Client `route_id` verwenden.
-
-Bei entfernten Agenten, Tokenwechsel, Session-Reset sowie Änderungen an Routing-/Admission-Konfiguration die passenden Grants widerrufen. Vor dem tatsächlichen Plattformübergang nochmals prüfen, nicht nur beim Eintritt in den MCP-Handler. Kein ACL-Snapshot aus dem ursprünglichen Empfang ersetzt eine aktuelle Prüfung. In-flight-Operationen bei Service-Stop abbrechen; bei unklarem Versandstatus keinen Erfolg erfinden.
+All outgoing messages use this current destination. The MCP client cannot override it with a route ID or chat ID. Keep channel, account, destination, thread and session together. Configuration changes, session resets, expiry and restart invalidate the route. If a newer source arrives while an outgoing send is still being planned, reject the outdated platform handoff rather than silently deliver to its previous target.
 
 ## 6. Ausgang und Fehlersemantik
 
-`send_message` akzeptiert Text sowie optional `route_id` oder einen eindeutig bekannten `chat_id`. Es legt keinen Eingangseintrag an und startet kein Modell. Der Versand läuft über die öffentlichen OpenClaw-Adapter und deren Formatierungs-/Delivery-Pipeline. Der ursprüngliche Account und der ursprüngliche Thread müssen ankommen; numerische Topic-IDs dürfen weder verschwinden noch mit anderen Bots vermischt werden.
+`send_message` accepts only text and always uses the agent’s current return route. Es legt keinen Eingangseintrag an und startet kein Modell. Der Versand läuft über die öffentlichen OpenClaw-Adapter und deren Formatierungs-/Delivery-Pipeline. Der ursprüngliche Account und der ursprüngliche Thread müssen ankommen; numerische Topic-IDs dürfen weder verschwinden noch mit anderen Bots vermischt werden.
 
 Prüfe die aktuelle Host-Send-Policy und den Session-Eintrag unmittelbar vor Versand. Reiche den kanonischen Session-Kontext und Requester-Kontext an den Host weiter. Hosteigene `message_sending`-/Payload-Hooks müssen weiterhin wirken. Wenn diese den Versand unterdrücken, darf das Resultat nicht `sent` heißen.
 

@@ -19,16 +19,28 @@ test('capture errors and unauthorized delivery fail closed for selected agents',
   assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
   assert(!f.logs.some(m => m.includes('secret upstream')));
 });
-test('outbound preserves original account, topic and owner; consumes do not remove route grants', async () => {
+test('outbound uses the current account/topic; consumption leaves the destination intact', async () => {
   const f = await fixture();
   f.receive({ originatingThreadId: 42 });
-  const message = f.bridge.mailbox(f.principal()).consume().messages[0];
-  await assert.rejects(f.bridge.send(f.principal('bob'), { text: 'no', route_id: message.route_id }, new AbortController().signal), /unknown_or_expired/);
-  const result = await f.bridge.send(f.principal(), { text: 'reply', route_id: message.route_id }, new AbortController().signal);
+  f.bridge.mailbox(f.principal()).consume();
+  await assert.rejects(f.bridge.send(f.principal('bob'), { text: 'no' }, new AbortController().signal), /unknown_or_expired/);
+  const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
   assert.equal(result.status, 'sent');
   assert.equal(f.sent[0].accountId, 'bot-a'); assert.equal(f.sent[0].threadId, 42); assert.equal(f.sent[0].to, '123');
   assert.equal(f.sent[0].session.agentId, 'alice');
   assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
+});
+test('all outgoing text follows the latest accepted source, regardless of FIFO position', async () => {
+  const f = await fixture();
+  f.receive();
+  f.receive({ originatingChannel: 'discord', originatingTo: 'discord-room', originatingAccountId: 'discord-bot', originatingThreadId: 'topic' }, { MessageSid: '2' });
+  assert.equal(f.bridge.mailbox(f.principal()).consume().messages[0].channel, 'telegram');
+  const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
+  assert.equal(result.status, 'sent');
+  assert.equal(f.sent[0].channel, 'discord');
+  assert.equal(f.sent[0].accountId, 'discord-bot');
+  assert.equal(f.sent[0].to, 'discord-room');
+  assert.equal(f.sent[0].threadId, 'topic');
 });
 test('removal, token changes, routing changes and session reset revoke access', async () => {
   const f = await fixture(); f.receive();

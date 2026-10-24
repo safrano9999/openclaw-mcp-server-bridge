@@ -46,12 +46,12 @@ export function registerBridge(api, host) {
     let cfg = assertPrincipal(principal);
     if (!args.text?.trim() || args.text.length > LIMITS.text) throw new BridgeError('invalid_text');
     const mailbox = box(principal.agentId);
-    const route = mailbox.resolve(args);
+    const route = mailbox.resolve();
     if (mailbox.inflight >= LIMITS.sends) throw new BridgeError('too_many_sends');
     const currentEpoch = epoch;
     const check = () => {
       cfg = assertPrincipal(principal);
-      if (currentEpoch !== epoch || ![...mailbox.routes.values()].includes(route) || Date.now() - route.time >= LIMITS.ttl) throw new BridgeError('route_revoked');
+      if (currentEpoch !== epoch || mailbox.actual_channel !== route || Date.now() - route.time >= LIMITS.ttl) throw new BridgeError('route_revoked');
       const entry = entryFor(cfg, principal.agentId, route.sessionKey);
       if (!entry || entry.sessionId !== route.sessionId) throw new BridgeError('session_changed');
       if (host.resolveSendPolicy({ cfg, entry, sessionKey: route.sessionKey, channel: route.channel, chatType: route.chatType }) !== 'allow') throw new BridgeError('send_policy_denied');

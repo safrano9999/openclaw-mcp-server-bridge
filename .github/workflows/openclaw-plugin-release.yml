@@ -27,6 +27,8 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      - name: Test injected agent initialization
+        run: python3 -m unittest discover -s test -p test_init.py -v
       - run: npm run build
       - name: Package installable ZIP
         run: bash .github/scripts/openclaw_plugin_zip.sh

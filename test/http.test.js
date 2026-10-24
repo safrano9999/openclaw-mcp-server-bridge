@@ -21,12 +21,13 @@ test('real MCP initialize, tool discovery, isolation, consumption, reconnect and
   };
   const alice = await connect(); const bob = await connect('bob');
   assert.deepEqual((await alice.listTools()).tools.map(t => t.name).sort(), ['new_message', 'pending_count', 'send_message']);
+  assert.deepEqual(Object.keys((await alice.listTools()).tools.find(t => t.name === 'send_message').inputSchema.properties), ['text']);
   assert.equal((await bob.callTool({ name: 'pending_count', arguments: {} })).structuredContent.pending, 0);
   const message = (await alice.callTool({ name: 'new_message', arguments: {} })).structuredContent.messages[0];
   assert.equal(message.text, 'hello');
-  const stolen = await bob.callTool({ name: 'send_message', arguments: { route_id: message.route_id, text: 'wrong' } });
+  const stolen = await bob.callTool({ name: 'send_message', arguments: { text: 'wrong' } });
   assert.equal(stolen.isError, true);
-  const sent = await alice.callTool({ name: 'send_message', arguments: { route_id: message.route_id, text: 'right' } });
+  const sent = await alice.callTool({ name: 'send_message', arguments: { text: 'right' } });
   assert.equal(sent.structuredContent.status, 'sent'); assert.equal(f.sent[0].threadId, 99);
   await alice.close(); f.receive({}, { MessageSid: '2' });
   const again = await connect();

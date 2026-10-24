@@ -1,6 +1,6 @@
 // Run only on the hosted CI runner. Never imports production config or channel credentials.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
@@ -18,8 +18,14 @@ const gatewayToken = randomBytes(32).toString('hex');
 cfg.gateway = { mode: 'local', port, bind: 'loopback', auth: { mode: 'token', token: gatewayToken }, controlUi: { enabled: false } };
 cfg.agents = { entries: { 'bridge-test': {} } };
 cfg.plugins ??= {}; cfg.plugins.entries ??= {};
-cfg.plugins.entries[ID] = { enabled: true, config: { agentIds: ['bridge-test'] } };
+cfg.plugins.entries[ID] = { enabled: true, config: { agentIds: [] } };
 await writeFile(configPath, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+execFileSync('python3', ['image/init/20-openclaw-mcp-bridge.py'], {
+  env: { ...process.env, PATH: `${process.cwd()}/node_modules/.bin:${process.env.PATH}`,
+    OPENCLAW_CONFIG: configPath, OPENCLAW_CONFIG_PATH: configPath,
+    OPENCLAW_MCP_BRIDGE_AGENTS: 'bridge-test' }, stdio: 'inherit',
+});
+assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.agentIds, ['bridge-test']);
 let previousToken;
 for (let attempt = 0; attempt < 2; attempt++) {
   const child = spawn('node_modules/.bin/openclaw', ['gateway', 'run', '--allow-unconfigured'], {
