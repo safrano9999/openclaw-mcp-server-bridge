@@ -143,7 +143,7 @@ export function registerBridge(api, host) {
     async start() {
       ready = false;
       const before = settings(cfgNow());
-      if (before.agentIds.some(id => !before.credentials[id]) || Object.keys(before.credentials).some(id => !before.agentIds.includes(id))) {
+      if (before.agentIds.some(id => !Object.hasOwn(before.credentials, id)) || Object.keys(before.credentials).some(id => !before.agentIds.includes(id))) {
         await api.runtime.config.mutateConfigFile({
           afterWrite: { mode: 'none', reason: 'Bridge adopts its own managed credentials during service startup' },
           mutate(draft) {

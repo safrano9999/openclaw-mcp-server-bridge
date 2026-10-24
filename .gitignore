@@ -5,3 +5,4 @@ node_modules/
 dist/*
 !dist/index.js
 !dist/index.js.LEGAL.txt
+!dist/THIRD_PARTY_NOTICES.txt

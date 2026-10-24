@@ -53,3 +53,9 @@ test('old route grants keep the original sender and session generation', () => {
   assert.equal(box.resolve({ route_id: original }).sessionId, 'old');
   assert.throws(() => box.resolve({ chat_id: '123' }), /ambiguous/);
 });
+test('agent names matching Object prototype fields still receive random credentials', () => {
+  const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: { agentIds: ['constructor'] } } } } };
+  const next = provision(cfg);
+  assert.match(next.credentials.constructor, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(authenticate(`Bearer ${next.credentials.constructor}`, next), 'constructor');
+});

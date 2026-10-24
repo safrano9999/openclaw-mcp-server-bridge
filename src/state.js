@@ -26,7 +26,7 @@ export function settings(cfg) {
 }
 export function provision(cfg) {
   const value = settings(cfg);
-  const credentials = Object.fromEntries(value.agentIds.map(id => [id, value.credentials[id] ?? randomBytes(32).toString('base64url')]));
+  const credentials = Object.fromEntries(value.agentIds.map(id => [id, Object.hasOwn(value.credentials, id) ? value.credentials[id] : randomBytes(32).toString('base64url')]));
   return { ...value, credentials };
 }
 export function authenticate(header, config) {
@@ -34,7 +34,7 @@ export function authenticate(header, config) {
   const supplied = Buffer.from(header.slice(7));
   let owner;
   for (const id of config.agentIds) {
-    const token = config.credentials[id];
+    const token = Object.hasOwn(config.credentials, id) ? config.credentials[id] : undefined;
     if (token && timingSafeEqual(supplied, Buffer.from(token))) owner = id;
   }
   return owner;
@@ -94,7 +94,8 @@ export class Mailbox {
     if (!Number.isInteger(count) || count < 1 || count > this.limits.batch) throw new BridgeError('invalid_count');
     this.prune();
     // No await between selection and removal: concurrent callers cannot consume the same item.
-    return { messages: this.remove(count), ...this.count() };
+    const messages = this.remove(count);
+    return { messages, count: messages.length, ...this.count() };
   }
   resolve({ route_id, chat_id } = {}) {
     this.prune();

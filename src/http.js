@@ -38,7 +38,7 @@ export function createHttpHandler(bridge) {
     res.once('close', disconnect);
     const timer = setTimeout(() => { controller.abort(); status(res, 408, 'request_timeout'); req.destroy(); }, 60000);
     timer.unref();
-    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.1.0' });
+    const server = new McpServer({ name: 'openclaw-mcp-server-bridge', version: '0.1.1' });
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     const completed = new Promise(resolve => { res.once('finish', resolve); res.once('close', resolve); });
     const invoke = operation => async (args) => {
