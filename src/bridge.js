@@ -55,6 +55,8 @@ export function registerBridge(api, host) {
       const entry = entryFor(cfg, principal.agentId, route.sessionKey);
       if (!entry || entry.sessionId !== route.sessionId) throw new BridgeError('session_changed');
       if (host.resolveSendPolicy({ cfg, entry, sessionKey: route.sessionKey, channel: route.channel, chatType: route.chatType }) !== 'allow') throw new BridgeError('send_policy_denied');
+      if (route.policySessionKey !== route.sessionKey && host.resolveSendPolicy({ cfg, entry,
+        sessionKey: route.policySessionKey, channel: route.channel, chatType: route.chatType }) !== 'allow') throw new BridgeError('send_policy_denied');
     };
     check();
     mailbox.inflight++;
@@ -67,7 +69,8 @@ export function registerBridge(api, host) {
         session: host.buildOutboundSessionContext({ cfg, sessionKey: route.sessionKey,
           policySessionKey: route.policySessionKey, agentId: principal.agentId,
           conversationType: route.chatType, requesterAccountId: route.accountId,
-          requesterSenderId: route.senderId }),
+          requesterSenderId: route.senderId, requesterSenderName: route.senderName,
+          requesterSenderUsername: route.senderUsername, requesterSenderE164: route.senderE164 }),
         // Recheck after async planning, immediately before each platform handoff.
         onPlatformSendDispatch: check,
         assertDirectAdapterHandoff: check,
@@ -115,6 +118,7 @@ export function registerBridge(api, host) {
         chatType: event.originatingChatType ?? ctx.ChatType,
         chatId: bounded(ctx.ChatId) ?? bounded(ctx.NativeChannelId) ?? to,
         senderId: bounded(ctx.SenderId),
+        senderName: bounded(ctx.SenderName), senderUsername: bounded(ctx.SenderUsername), senderE164: bounded(ctx.SenderE164),
       };
       const accepted = box(agentId).enqueue(route, {
         text: ctx.rawText ?? ctx.RawBody ?? ctx.CommandBody ?? '',

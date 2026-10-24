@@ -44,7 +44,8 @@ export function routeEpoch(cfg) {
   return createHash('sha256').update(JSON.stringify([cfg.bindings, cfg.agents, cfg.channels, cfg.session])).digest('hex');
 }
 const keyOf = route => JSON.stringify([route.channel, route.accountId, route.to, route.threadId ?? null,
-  route.sessionKey, route.sessionId, route.policySessionKey, route.senderId, route.chatType]);
+  route.sessionKey, route.sessionId, route.policySessionKey, route.senderId, route.senderName,
+  route.senderUsername, route.senderE164, route.chatType]);
 export class Mailbox {
   constructor(limits = LIMITS, now = Date.now) {
     this.limits = { ...LIMITS, ...limits }; this.now = now;

@@ -56,6 +56,13 @@ test('partial/suppressed/uncertain delivery never becomes success or automatic r
     assert.equal(result.retry_safe, false); assert.notEqual(result.status, 'sent'); assert.equal(calls, 1);
   }
 });
+test('a narrower runtime policy key cannot be bypassed by a broad main session', async () => {
+  const f = await fixture();
+  f.receive({}, { RuntimePolicySessionKey: 'agent:alice:telegram:group:blocked' });
+  f.host.resolveSendPolicy = ({ sessionKey }) => sessionKey.endsWith(':blocked') ? 'deny' : 'allow';
+  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
+  assert.equal(f.sent.length, 0);
+});
 test('restart clears queues and route grants but preserves managed credentials', async () => {
   const f = await fixture(); f.receive(); const token = f.header();
   await f.captured.service.stop(); await f.captured.service.start();
