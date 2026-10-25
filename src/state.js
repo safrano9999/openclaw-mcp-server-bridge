@@ -43,8 +43,9 @@ const keyOf = route => JSON.stringify([route.channel, route.accountId, route.to,
   route.sessionKey, route.sessionId, route.policySessionKey, route.senderId, route.senderName,
   route.senderUsername, route.senderE164, route.chatType]);
 export class Mailbox {
-  constructor(limits = LIMITS, now = Date.now) {
+  constructor(limits = LIMITS, now = Date.now, saveRoute = () => {}) {
     this.limits = { ...LIMITS, ...limits }; this.now = now;
+    this.saveRoute = saveRoute;
     this.queue = []; this.bytes = 0; this.actual_channel = undefined; this.seen = new Map();
     this.dropped = 0; this.expired = 0; this.duplicates = 0; this.sequence = 0;
     this.inflight = 0;
@@ -52,7 +53,6 @@ export class Mailbox {
   prune() {
     const cutoff = this.now() - this.limits.ttl;
     while (this.queue.length && this.queue[0].time <= cutoff) { this.remove(1); this.expired++; }
-    if (this.actual_channel?.time <= cutoff) this.actual_channel = undefined;
     for (const [id, time] of this.seen) if (time <= cutoff) this.seen.delete(id);
   }
   remove(count) {
@@ -63,18 +63,20 @@ export class Mailbox {
     const key = keyOf(route);
     const dedupe = identity ? JSON.stringify([key, identity]) : undefined;
     if (dedupe && this.seen.has(dedupe)) { this.duplicates++; return false; }
-    if (dedupe) {
-      this.seen.set(dedupe, this.now());
-      while (this.seen.size > this.limits.dedupe) this.seen.delete(this.seen.keys().next().value);
-    }
     const body = String(message.text ?? '');
     const dto = { ...message, text: body.slice(0, this.limits.text), truncated: body.length > this.limits.text,
       id: randomUUID(), sequence: ++this.sequence, received_at: new Date(this.now()).toISOString(),
       channel: route.channel, account_id: route.accountId, chat_id: route.chatId, thread_id: route.threadId };
     const bytes = Buffer.byteLength(JSON.stringify(dto));
     if (bytes > this.limits.bytes) { this.dropped++; return false; }
+    const current = { ...route, route_id: randomUUID(), time: this.now() };
+    this.saveRoute(current);
+    this.actual_channel = current;
+    if (dedupe) {
+      this.seen.set(dedupe, this.now());
+      while (this.seen.size > this.limits.dedupe) this.seen.delete(this.seen.keys().next().value);
+    }
     while (this.queue.length >= this.limits.queue || this.bytes + bytes > this.limits.bytes) { this.remove(1); this.dropped++; }
-    this.actual_channel = { ...route, route_id: randomUUID(), time: this.now() };
     this.queue.push({ message: dto, bytes, time: this.now() }); this.bytes += bytes;
     return true;
   }
@@ -88,7 +90,7 @@ export class Mailbox {
   }
   resolve() {
     this.prune();
-    if (!this.actual_channel) throw new BridgeError('unknown_or_expired_route');
+    if (!this.actual_channel) throw new BridgeError('no_return_route');
     return this.actual_channel;
   }
 }

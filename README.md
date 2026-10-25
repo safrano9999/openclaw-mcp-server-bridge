@@ -41,7 +41,9 @@ Each agent has its own FIFO and exactly one current return route, `actual_channe
 
 For example, messages arriving through Telegram, then Discord, leave Discord as the current outgoing destination. Reading or draining older FIFO entries never changes the current route. Different agents keep independent queues and destinations.
 
-There is no historical route selector. `send_message` accepts only text and always uses the most recently accepted source. The client cannot supply a chat ID or choose an older message’s destination. A restart, routing configuration change, expired route or session reset requires a fresh admitted incoming message. A send whose destination changes before platform handoff is rejected rather than delivered to an outdated target.
+There is no historical route selector. `send_message` accepts only text and always uses the most recently accepted source. The client cannot supply a chat ID or choose an older message’s destination. The latest return route for each agent is saved atomically in `<OpenClaw state directory>/openclaw-mcp-server-bridge/routes.json` and survives gateway restarts. Every newly accepted incoming message replaces that agent's saved destination, including its sender, channel, account and thread. FIFO consumption and message expiry never change it. The file contains no message bodies or bearer tokens and belongs on the existing persistent OpenClaw volume.
+
+A first admitted incoming message is still required to establish a destination. Routing configuration changes or a session reset require a fresh admitted incoming message. A send whose destination changes before platform handoff is rejected rather than delivered to an outdated target.
 
 | Tool | Input | Behavior |
 | --- | --- | --- |
@@ -53,7 +55,7 @@ An entry contains its ID, sequence, receipt time, text, truncation flag and orig
 
 ## Delivery and lifetime
 
-Each agent retains at most 1,000 messages / 8 MiB, with 32,768 characters per text and at most 8,192 deduplication identities. At most 64 agents are selected. Overflow drops the oldest entries and increments a counter. Messages and the current route expire after 24 hours. Disconnecting an MCP client keeps the queue; restarting the gateway or bridge clears it.
+Each agent retains at most 1,000 messages / 8 MiB, with 32,768 characters per text and at most 8,192 deduplication identities. At most 64 agents are selected. Overflow drops the oldest entries and increments a counter. Messages expire after 24 hours; the current return route has no time-based expiry. Disconnecting an MCP client keeps the queue; restarting the gateway or bridge clears the queue and restores the saved return route.
 
 Consumption is **at most once**: entries removed by `new_message` are not replayed after a lost HTTP response. Concurrent clients of the same agent share the queue and receive disjoint entries. There is no persistent inbox or acknowledgement protocol.
 

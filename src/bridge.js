@@ -1,6 +1,7 @@
 import { ID, PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, routeEpoch } from './state.js';
 import { createHttpHandler } from './http.js';
 import { ICON_PATH } from './browser.js';
+import { RouteStore } from './routes.js';
 
 const HANDLED = Object.freeze({ handled: true, queuedFinal: false, counts: { tool: 0, block: 0, final: 0 } });
 const bounded = value => typeof value === 'string' ? value.slice(0, 512) : undefined;
@@ -10,6 +11,7 @@ export function registerBridge(api, host) {
   let ready = false;
   let generation = new AbortController();
   let epoch;
+  let routes;
   const boxes = new Map();
   const cfgNow = () => api.runtime.config.current();
   function sync() {
@@ -20,6 +22,8 @@ export function registerBridge(api, host) {
       generation.abort(); generation = new AbortController(); boxes.clear();
     }
     epoch = nextEpoch;
+    routes ??= new RouteStore(api.runtime.state.resolveStateDir());
+    routes.sync(epoch, conf.agentIds);
     for (const id of boxes.keys()) if (!conf.agentIds.includes(id)) boxes.delete(id);
     return { cfg, conf };
   }
@@ -30,7 +34,11 @@ export function registerBridge(api, host) {
     return cfg;
   }
   function box(id) {
-    if (!boxes.has(id)) boxes.set(id, new Mailbox());
+    if (!boxes.has(id)) {
+      const mailbox = new Mailbox(LIMITS, Date.now, route => routes.set(id, route));
+      mailbox.actual_channel = routes.get(id);
+      boxes.set(id, mailbox);
+    }
     return boxes.get(id);
   }
   function authorize(header) {
@@ -52,7 +60,7 @@ export function registerBridge(api, host) {
     const currentEpoch = epoch;
     const check = () => {
       cfg = assertPrincipal(principal);
-      if (currentEpoch !== epoch || mailbox.actual_channel !== route || Date.now() - route.time >= LIMITS.ttl) throw new BridgeError('route_revoked');
+      if (currentEpoch !== epoch || mailbox.actual_channel !== route) throw new BridgeError('route_revoked');
       const entry = entryFor(cfg, principal.agentId, route.sessionKey);
       if (!entry || entry.sessionId !== route.sessionId) throw new BridgeError('session_changed');
       if (host.resolveSendPolicy({ cfg, entry, sessionKey: route.sessionKey, channel: route.channel, chatType: route.chatType }) !== 'allow') throw new BridgeError('send_policy_denied');

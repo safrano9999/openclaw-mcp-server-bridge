@@ -1,12 +1,19 @@
 import { registerBridge } from '../src/bridge.js';
 import { ID, PATH } from '../src/state.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { after } from 'node:test';
+const scratch = mkdtempSync(join(tmpdir(), 'bridge-tests-'));
+after(() => rmSync(scratch, { recursive: true, force: true }));
 export async function fixture(options = {}) {
+  const stateDir = options.stateDir ?? mkdtempSync(join(scratch, 'state-'));
   let cfg = { agents: { entries: { alice: {}, bob: {}, normal: {} } },
     plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['alice', 'bob'],
       credentials: { alice: 'a'.repeat(64), bob: 'b'.repeat(43) } } } } } };
   const captured = {}; const sent = []; const logs = [];
   const api = {
-    runtime: { config: { current: () => cfg, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(cfg); await mutate(next); cfg = next; } } },
+    runtime: { state: { resolveStateDir: () => stateDir }, config: { current: () => cfg, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(cfg); await mutate(next); cfg = next; } } },
     logger: { info: m => logs.push(m), warn: m => logs.push(m), ...options.logger },
     on: (name, fn, opts) => { captured.hook = fn; captured.hookOptions = opts; },
     registerHttpRoute: route => { (captured.routes ??= []).push(route); if (route.path === PATH) captured.route = route; },
@@ -29,5 +36,5 @@ export async function fixture(options = {}) {
       AccountId: 'bot-a', rawText: 'hello', ChatId: '123', MessageSid: '1', SenderId: 'sender', ...ctx },
     originatingChannel: 'telegram', originatingTo: '123', originatingAccountId: 'bot-a', sendPolicy: 'allow', ...overrides,
   }, { recordProcessed() {}, markIdle() {} });
-  return { bridge, captured, host, sent, logs, receive, header, principal, config: () => cfg, setConfig: next => { cfg = next; } };
+  return { bridge, captured, host, sent, logs, receive, header, principal, stateDir, config: () => cfg, setConfig: next => { cfg = next; } };
 }

@@ -28,7 +28,7 @@ try {
   let hook, service, route;
   const routes = [];
   plugin.register({ config, pluginConfig: config.plugins.entries[ID].config,
-    runtime: { config: { current: () => config, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(config); await mutate(next); config = next; } } },
+    runtime: { state: { resolveStateDir: () => scratch }, config: { current: () => config, mutateConfigFile: async ({ mutate }) => { const next = structuredClone(config); await mutate(next); config = next; } } },
     logger: { info() {}, warn: message => { throw Error(message); } },
     on(name, handler) { assert.equal(name, 'reply_dispatch'); hook = handler; },
     registerHttpRoute(value) { routes.push(value); if (value.path === PATH) route = value; }, registerService(value) { service = value; }, registerCli() {},

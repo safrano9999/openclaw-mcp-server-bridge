@@ -20,7 +20,7 @@ test('overflow, expiry, truncation, dedupe and count bounds are explicit', () =>
   assert.deepEqual(box.consume(2).messages.map(m => m.text), ['3', '4']);
   box.enqueue(route, { text: '5' }, '5'); now += 101;
   assert.equal(box.count().expired, 1);
-  assert.throws(() => box.resolve(), /unknown_or_expired/);
+  assert.equal(box.resolve().channel, 'telegram');
   for (const n of [0, -1, 101, NaN, 1.5]) assert.throws(() => box.consume(n), /invalid_count/);
 });
 test('mixed-source FIFO entries never change the latest accepted destination when consumed', () => {
@@ -70,6 +70,16 @@ test('duplicates do not replace the current destination', () => {
   const current = box.resolve();
   assert.equal(box.enqueue(route, { text: 'duplicate' }, '1'), false);
   assert.equal(box.resolve(), current);
+});
+test('a failed route write does not acknowledge a message or suppress its retry', () => {
+  let fail = true;
+  const box = new Mailbox({}, Date.now, () => { if (fail) throw Error('disk unavailable'); });
+  assert.throws(() => box.enqueue(route, { text: 'first' }, '1'), /disk unavailable/);
+  assert.equal(box.count().pending, 0);
+  assert.throws(() => box.resolve(), /no_return_route/);
+  fail = false;
+  assert.equal(box.enqueue(route, { text: 'first' }, '1'), true);
+  assert.equal(box.count().pending, 1);
 });
 test('prototype names require an explicitly supplied bearer', () => {
   const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: {

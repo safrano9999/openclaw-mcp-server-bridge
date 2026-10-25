@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './fixture.js';
 import { ID } from '../src/state.js';
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 test('selected inbound is captured without a client; unrelated agents are untouched', async () => {
   const f = await fixture();
   assert.equal(f.receive().handled, true);
@@ -23,7 +25,7 @@ test('outbound uses the current account/topic; consumption leaves the destinatio
   const f = await fixture();
   f.receive({ originatingThreadId: 42 });
   f.bridge.mailbox(f.principal()).consume();
-  await assert.rejects(f.bridge.send(f.principal('bob'), { text: 'no' }, new AbortController().signal), /unknown_or_expired/);
+  await assert.rejects(f.bridge.send(f.principal('bob'), { text: 'no' }, new AbortController().signal), /no_return_route/);
   const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
   assert.equal(result.status, 'sent');
   assert.equal(f.sent[0].accountId, 'bot-a'); assert.equal(f.sent[0].threadId, 42); assert.equal(f.sent[0].to, '123');
@@ -48,7 +50,7 @@ test('removal, token changes, routing changes and session reset revoke access', 
   f.config().plugins.entries[ID].config.credentials.alice = 'x'.repeat(43);
   assert.throws(() => f.bridge.mailbox(p), /credential_revoked/);
   f.config().bindings = [{ agentId: 'bob', match: { channel: 'telegram' } }];
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /unknown_or_expired/);
+  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /no_return_route/);
   f.receive(); f.host.getSessionEntry = () => ({ sessionId: 'new-session' });
   await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /session_changed/);
   f.config().plugins.entries[ID].config.agentIds = [];
@@ -75,11 +77,49 @@ test('a narrower runtime policy key cannot be bypassed by a broad main session',
   await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
   assert.equal(f.sent.length, 0);
 });
-test('restart clears queues and route grants but preserves managed credentials', async () => {
+test('restart clears queues but preserves the current return route and credentials', async () => {
   const f = await fixture(); f.receive(); const token = f.header();
   await f.captured.service.stop(); await f.captured.service.start();
   assert.equal(f.header(), token); assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /unknown_or_expired/);
+  assert.equal((await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal)).status, 'sent');
+});
+test('a new process restores only the latest destination, independently for each agent', async () => {
+  const f = await fixture();
+  f.receive();
+  f.receive({ sessionKey: 'agent:bob:telegram:direct:456', originatingTo: '456', originatingAccountId: 'bot-b' },
+    { AgentId: 'bob', SessionKey: 'agent:bob:telegram:direct:456', SenderId: 'bob-sender', MessageSid: '2' });
+  f.receive({ originatingChannel: 'discord', originatingTo: 'room', originatingAccountId: 'discord-bot', originatingThreadId: 'thread' },
+    { SenderId: 'latest-sender', MessageSid: '3' });
+  f.bridge.mailbox(f.principal()).consume(2);
+  const file = join(f.stateDir, ID, 'routes.json');
+  const stored = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(stored.routes.alice.senderId, 'latest-sender');
+  assert.equal(Object.keys(stored.routes).length, 2);
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.ok(!readFileSync(file, 'utf8').includes(f.header().slice(7)));
+  await f.captured.service.stop();
+  const fresh = await fixture({ stateDir: f.stateDir });
+  assert.equal(fresh.bridge.mailbox(fresh.principal()).count().pending, 0);
+  await fresh.bridge.send(fresh.principal(), { text: 'after restart' }, new AbortController().signal);
+  assert.equal(fresh.sent[0].channel, 'discord');
+  assert.equal(fresh.sent[0].to, 'room');
+  assert.equal(fresh.sent[0].threadId, 'thread');
+  await fresh.bridge.send(fresh.principal('bob'), { text: 'bob reply' }, new AbortController().signal);
+  assert.equal(fresh.sent[1].to, '456');
+  // The next sender replaces the persisted route again, without a client reconnect.
+  fresh.receive({ originatingTo: '789' }, { SenderId: 'new-sender', MessageSid: '4' });
+  assert.equal(JSON.parse(readFileSync(file, 'utf8')).routes.alice.to, '789');
+  await fresh.bridge.send(fresh.principal(), { text: 'latest reply' }, new AbortController().signal);
+  assert.equal(fresh.sent[2].to, '789');
+});
+test('a routing change while stopped cannot restore obsolete destinations', async () => {
+  const f = await fixture(); f.receive();
+  await f.captured.service.stop();
+  const fresh = await fixture({ stateDir: f.stateDir, skipStart: true });
+  fresh.config().bindings = [{ agentId: 'bob', match: { channel: 'telegram' } }];
+  await fresh.captured.service.start();
+  await assert.rejects(fresh.bridge.send(fresh.principal(), { text: 'reply' }, new AbortController().signal), /no_return_route/);
+  assert.deepEqual(JSON.parse(readFileSync(join(f.stateDir, ID, 'routes.json'), 'utf8')).routes, {});
 });
 test('disabled plugin releases dispatch and broken diagnostics cannot release a selected turn', async () => {
   const f = await fixture({ logger: { warn() { throw Error('logger failed'); } } });
