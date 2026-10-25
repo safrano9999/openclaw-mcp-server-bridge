@@ -2,6 +2,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 
 export const ID = 'openclaw-mcp-server-bridge';
 export const PATH = '/mcp';
+export const DIRECT_PATH = '/mcp/direct';
 export const LIMITS = Object.freeze({ queue: 1000, bytes: 8 * 1024 * 1024, text: 32768, dedupe: 8192, ttl: 86400000, batch: 100, sends: 8 });
 export class BridgeError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -23,7 +24,9 @@ export function settings(cfg) {
   if (!Array.isArray(allowedOrigins) || allowedOrigins.length > 16 || allowedOrigins.some(o => {
     try { return new URL(o).origin !== o || !/^https?:/.test(o) || o.length > 256; } catch { return true; }
   })) throw new BridgeError('invalid_origins');
-  return { agentIds: ids, credentials, allowedOrigins };
+  const { direct = false, directFifo = false } = value;
+  if (typeof direct !== 'boolean' || typeof directFifo !== 'boolean') throw new BridgeError('invalid_direct_settings');
+  return { agentIds: ids, credentials, allowedOrigins, direct, directFifo };
 }
 export function authenticate(header, config) {
   if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9_-]{43,128}$/i.test(header)) return undefined;
@@ -58,7 +61,7 @@ export class Mailbox {
   remove(count) {
     return this.queue.splice(0, count).map(item => { this.bytes -= item.bytes; return item.message; });
   }
-  enqueue(route, message, identity) {
+  enqueue(route, message, identity, updateRoute = true) {
     this.prune();
     const key = keyOf(route);
     const dedupe = identity ? JSON.stringify([key, identity]) : undefined;
@@ -69,9 +72,11 @@ export class Mailbox {
       channel: route.channel, account_id: route.accountId, chat_id: route.chatId, thread_id: route.threadId };
     const bytes = Buffer.byteLength(JSON.stringify(dto));
     if (bytes > this.limits.bytes) { this.dropped++; return false; }
-    const current = { ...route, route_id: randomUUID(), time: this.now() };
-    this.saveRoute(current);
-    this.actual_channel = current;
+    if (updateRoute) {
+      const current = { ...route, route_id: randomUUID(), time: this.now() };
+      this.saveRoute(current);
+      this.actual_channel = current;
+    }
     if (dedupe) {
       this.seen.set(dedupe, this.now());
       while (this.seen.size > this.limits.dedupe) this.seen.delete(this.seen.keys().next().value);

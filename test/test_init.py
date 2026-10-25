@@ -64,6 +64,21 @@ class InitializationTests(unittest.TestCase):
             path.write_text(json.dumps(config))
             self.assertFalse(init.configure(env, runner=lambda *_a, **_kw: self.fail("unexpected write")))
 
+    def test_direct_flags_preserve_pairs_and_validate_booleans(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "openclaw.json"
+            previous = {"agentIds": ["carassistant"], "credentials": {"carassistant": "a" * 64}}
+            path.write_text(json.dumps({"plugins": {"entries": {init.PLUGIN: {"config": previous}}}}))
+            calls = []
+            def runner(args, **kwargs):
+                calls.append(json.loads(Path(args[4]).read_text())[0]["value"])
+            env = {"OPENCLAW_CONFIG": str(path), "OPENCLAW_MCP_BRIDGE_DIRECT": "true", "OPENCLAW_MCP_BRIDGE_DIRECT_FIFO": "1"}
+            self.assertTrue(init.configure(env, runner))
+            self.assertEqual(calls[0], {**previous, "direct": True, "directFifo": True})
+            env["OPENCLAW_MCP_BRIDGE_DIRECT"] = "maybe"
+            with self.assertRaisesRegex(ValueError, "must be true or false"):
+                init.configure(env, runner)
+
     def test_absent_pairs_leave_manual_configuration_untouched(self):
         self.assertFalse(init.configure({}))
 

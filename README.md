@@ -83,3 +83,21 @@ The ZIP includes the compiled extension, dependency license notices, `env.exampl
 GitHub Actions verifies OpenClaw **2026.9.4** and **2026.10.6**, including public SDK imports, ZIP installation and isolated gateway startup. Unit tests cover FIFO order, the latest-source destination, agent isolation, admission, delivery policy and injected initialization. Production Telegram acceptance remains a separate live test.
 
 Workflow source of truth: `SCRIPTS/githubactions/openclaw-mcp-server-bridge`; shared packaging: `SCRIPTS/githubactions/_shared/scripts/openclaw_plugin_zip.sh`. Container images are built only by the existing Fedora GitHub Actions, published to GHCR and pulled only through Smart1.
+
+## Direct webhooks
+
+Enable `OPENCLAW_MCP_BRIDGE_DIRECT=true` to accept JSON at `/mcp/direct` on the same gateway. It defaults to `false`. Authenticate with the existing bearer for the target agent; no separate webhook key or listening port is needed.
+
+```http
+POST /mcp/direct
+Authorization: Bearer <agent-bearer>
+Content-Type: application/json
+
+{"text":"Location: 52.52, 13.405 (measured 2026-10-25T12:00:00Z)","event_id":"phone:1792929600","payload":{"latitude":52.52,"longitude":13.405}}
+```
+
+`text` is required. `event_id` and a structured `payload` object are optional. Other top-level fields are rejected. The bearer selects the agent; the request cannot choose a channel, recipient or session. Text is sent through the gateway to the saved latest channel destination using the same delivery policy as `send_message`. No LLM call is involved.
+
+To make incoming webhook data readable by MCP clients as well, set `OPENCLAW_MCP_BRIDGE_DIRECT_FIFO=true` (default `false`). Each accepted webhook adds one `webhook` entry containing text and payload to that agent's existing FIFO. It **never changes the saved return route**, even if no route exists yet. Ordinary admitted channel messages still update the route as before. With FIFO enabled, duplicate `event_id` values are suppressed within the queue's existing deduplication window. Treat webhook payloads as untrusted input.
+
+The response separates `fifo_enqueued` from outbound delivery. HTTP 200 with `status: sent` confirms channel delivery; HTTP 202 with `fifo_enqueued: true` confirms only FIFO acceptance when delivery failed or no channel route is available. Without FIFO, a missing route returns 409 and a denied send policy returns 403. Unknown delivery is never retried automatically. Queue limits, expiry and restart behavior remain the same as for channel inputs.

@@ -34,7 +34,7 @@ try {
     registerHttpRoute(value) { routes.push(value); if (value.path === PATH) route = value; }, registerService(value) { service = value; }, registerCli() {},
   });
   assert.equal(route.auth, 'plugin'); assert.equal(route.path, '/mcp');
-  assert.deepEqual(routes.map(r => r.path).sort(), [PATH, ICON_PATH]);
+  assert.deepEqual(routes.map(r => r.path).sort(), [PATH, '/mcp/direct', ICON_PATH]);
   await service.start();
   const result = await hook({ sessionKey, sendPolicy: 'allow', originatingChannel: 'telegram', originatingTo: '123', originatingAccountId: 'default',
     ctx: { AgentId: 'bridge-test', SessionKey: sessionKey, InboundAccessAuthorized: true, rawText: 'host contract', ChatId: '123', MessageSid: '1' } },

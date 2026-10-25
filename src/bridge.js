@@ -1,4 +1,4 @@
-import { ID, PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, routeEpoch } from './state.js';
+import { ID, PATH, DIRECT_PATH, LIMITS, BridgeError, Mailbox, authenticate, settings, routeEpoch } from './state.js';
 import { createHttpHandler } from './http.js';
 import { ICON_PATH } from './browser.js';
 import { RouteStore } from './routes.js';
@@ -51,7 +51,7 @@ export function registerBridge(api, host) {
   function entryFor(cfg, agentId, sessionKey) {
     return host.getSessionEntry({ agentId, sessionKey, storePath: host.resolveStorePath(cfg.session?.store, { agentId }) });
   }
-  async function send(principal, args, signal) {
+  async function send(principal, args, signal, guard = () => {}) {
     let cfg = assertPrincipal(principal);
     if (!args.text?.trim() || args.text.length > LIMITS.text) throw new BridgeError('invalid_text');
     const mailbox = box(principal.agentId);
@@ -59,6 +59,7 @@ export function registerBridge(api, host) {
     if (mailbox.inflight >= LIMITS.sends) throw new BridgeError('too_many_sends');
     const currentEpoch = epoch;
     const check = () => {
+      guard();
       cfg = assertPrincipal(principal);
       if (currentEpoch !== epoch || mailbox.actual_channel !== route) throw new BridgeError('route_revoked');
       const entry = entryFor(cfg, principal.agentId, route.sessionKey);
@@ -94,11 +95,31 @@ export function registerBridge(api, host) {
       return { status: 'delivery_unknown', retry_safe: false };
     } finally { mailbox.inflight--; }
   }
-  const bridge = { authorize, assertPrincipal, origins: () => sync().conf.allowedOrigins,
+  async function direct(principal, args, signal) {
+    const guard = () => {
+      assertPrincipal(principal);
+      if (!sync().conf.direct) throw new BridgeError('direct_disabled');
+    };
+    guard();
+    let queued = false;
+    if (sync().conf.directFifo) {
+      // Webhooks are inputs, not channel senders: never replace actual_channel.
+      queued = box(principal.agentId).enqueue({ channel: 'webhook', accountId: principal.agentId },
+        { text: args.text, payload: args.payload, event_id: args.event_id }, args.event_id, false);
+      if (!queued) return { status: 'duplicate_or_overflow', fifo_enqueued: false };
+    }
+    try { return { ...await send(principal, args, signal, guard), fifo_enqueued: queued }; }
+    catch (error) {
+      if (!queued) throw error;
+      return { status: 'queued', fifo_enqueued: true, delivery_error: error instanceof BridgeError ? error.code : 'delivery_unknown', retry_safe: false };
+    }
+  }
+  const bridge = { authorize, assertPrincipal, direct, directEnabled: () => sync().conf.direct,
+    origins: () => sync().conf.allowedOrigins,
     mailbox: principal => { assertPrincipal(principal); return box(principal.agentId); }, send };
 
   const handler = createHttpHandler(bridge);
-  for (const path of [PATH, ICON_PATH]) api.registerHttpRoute({ path, auth: 'plugin', match: 'exact', handler });
+  for (const path of [PATH, DIRECT_PATH, ICON_PATH]) api.registerHttpRoute({ path, auth: 'plugin', match: 'exact', handler });
   api.on('reply_dispatch', (event, context) => {
     const ctx = event.ctx;
     const sessionKey = event.sessionKey ?? ctx.SessionKey;

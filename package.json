@@ -1,6 +1,6 @@
 {
   "name": "openclaw-mcp-server-bridge",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Agent-isolated, in-process MCP bridge for OpenClaw channel messages",
@@ -15,9 +15,16 @@
     "esbuild": "0.25.12",
     "zod": "4.4.3"
   },
-  "engines": { "node": ">=24.16.0 <25 || >=26.1.0" },
+  "engines": {
+    "node": ">=24.16.0 <25 || >=26.1.0"
+  },
   "openclaw": {
-    "extensions": ["./dist/index.js"],
-    "compat": { "pluginApi": ">=2026.9.4", "minGatewayVersion": ">=2026.9.4" }
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.9.4",
+      "minGatewayVersion": ">=2026.9.4"
+    }
   }
 }

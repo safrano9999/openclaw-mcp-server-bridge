@@ -12,6 +12,7 @@ PLUGIN = "openclaw-mcp-server-bridge"
 PREFIX = "OPENCLAW_MCP_BRIDGE_"
 PAIR_KEY = re.compile(r"^OPENCLAW_MCP_BRIDGE_(?:AGENT|BEARER)(_[0-9]+)?$")
 TOKEN = re.compile(r"[A-Za-z0-9_-]{43,128}")
+FLAGS = {"OPENCLAW_MCP_BRIDGE_DIRECT": "direct", "OPENCLAW_MCP_BRIDGE_DIRECT_FIFO": "directFifo"}
 
 
 def selected_pairs(environ, config):
@@ -37,7 +38,8 @@ def selected_pairs(environ, config):
 
 def configure(environ=os.environ, runner=subprocess.run):
     # An absent variable leaves independently managed bare-metal config intact.
-    if not any(PAIR_KEY.fullmatch(key) for key in environ):
+    has_pairs = any(PAIR_KEY.fullmatch(key) for key in environ)
+    if not has_pairs and not any(key in environ for key in FLAGS):
         return False
     state = environ.get("OPENCLAW_STATE_DIR") or environ.get("OPENCLAW_HOME")
     default = Path(state) if state else Path(environ.get("HOME", "/root")) / ".openclaw"
@@ -50,7 +52,15 @@ def configure(environ=os.environ, runner=subprocess.run):
             raise ValueError("MCP bridge must be installed and registered before initialization")
         return False
     previous = entry.get("config", {})
-    updated = {**previous, "agentIds": ids, "credentials": credentials}
+    updated = {**previous}
+    if has_pairs:
+        updated.update(agentIds=ids, credentials=credentials)
+    for key, field in FLAGS.items():
+        if key in environ:
+            value = environ[key].strip().lower()
+            if value not in ("true", "false", "1", "0"):
+                raise ValueError(f"{key} must be true or false")
+            updated[field] = value in ("true", "1")
     if previous == updated:
         return False
     # A private batch file keeps bearer values out of command-line arguments.

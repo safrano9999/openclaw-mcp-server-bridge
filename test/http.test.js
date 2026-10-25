@@ -46,7 +46,7 @@ test('HTTP auth, Origin, methods, content type, size and malformed input checks'
 });
 test('browser landing and favicon are public; MCP requests still require the assigned bearer', async t => {
   const f = await listen(t);
-  assert.deepEqual(f.captured.routes.map(r => r.path).sort(), ['/mcp', '/mcp/favicon.jpeg']);
+  assert.deepEqual(f.captured.routes.map(r => r.path).sort(), ['/mcp', '/mcp/direct', '/mcp/favicon.jpeg']);
   const page = await fetch(f.url, { headers: { Accept: 'text/html,application/xhtml+xml' } });
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-type'), /^text\/html/);
@@ -66,4 +66,40 @@ test('browser landing and favicon are public; MCP requests still require the ass
   assert.equal((await fetch(f.url, { headers: { Accept: 'application/json, text/event-stream' } })).status, 401);
   assert.equal((await fetch(f.url, { method: 'POST', headers: { Accept: 'text/html' }, body: '{}' })).status, 401);
   assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
+});
+test('direct webhook is opt-in, bearer-scoped and preserves the channel route', async t => {
+  const f = await listen(t); const url = new URL('/mcp/direct', f.url);
+  const config = f.config().plugins.entries['openclaw-mcp-server-bridge'].config;
+  const post = (body, token = f.header()) => fetch(url, { method: 'POST', headers: {
+    Authorization: token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  assert.equal((await post({text:'coordinates'})).status, 404);
+  config.direct = true;
+  assert.equal((await post({text:'coordinates'}, 'Bearer invalid')).status, 401);
+  assert.equal((await post({text:'coordinates', to:'attacker'})).status, 400);
+  assert.equal((await post({text:'coordinates'})).status, 409);
+  config.directFifo = true;
+  const queued = await post({text:'coordinates', event_id:'first', payload:{latitude:52, longitude:13}});
+  assert.equal(queued.status, 202);
+  assert.equal((await queued.json()).delivery_error, 'no_return_route');
+  const box = f.bridge.mailbox(f.principal());
+  assert.equal(box.actual_channel, undefined);
+  assert.equal(f.bridge.mailbox(f.principal('bob')).count().pending, 0);
+  assert.equal((await post({text:'coordinates', event_id:'first'})).status, 200);
+  assert.equal(box.count().pending, 1);
+  const input = box.consume().messages[0];
+  assert.equal(input.channel, 'webhook'); assert.equal(input.payload.latitude, 52);
+  f.receive(); const route = box.actual_channel;
+  const sent = await post({text:'new position', event_id:'second'});
+  assert.equal(sent.status, 200); assert.equal((await sent.json()).fifo_enqueued, true);
+  assert.equal(box.actual_channel, route); assert.equal(f.sent[0].to, '123');
+  assert.equal(box.count().pending, 2);
+  config.directFifo = false;
+  await post({text:'outbound only'}); assert.equal(box.count().pending, 2);
+  f.receive({originatingChannel:'discord', originatingTo:'456'}, {MessageSid:'2'});
+  await post({text:'latest route'}); assert.equal(f.sent.at(-1).channel, 'discord');
+  assert.equal(f.sent.at(-1).to, '456');
+  f.host.resolveSendPolicy = () => 'deny';
+  assert.equal((await post({text:'blocked'})).status, 403);
+  config.direct = false;
+  assert.equal((await post({text:'disabled'})).status, 404);
 });
