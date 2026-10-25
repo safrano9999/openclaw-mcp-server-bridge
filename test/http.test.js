@@ -14,7 +14,7 @@ async function listen(t) {
   return { ...f, url };
 }
 test('real MCP initialize, tool discovery, isolation, consumption, reconnect and native send', async t => {
-  const f = await listen(t); f.receive({ originatingThreadId: 99 });
+  const f = await listen(t); f.receive({ originatingThreadId: 99, suppressUserDelivery: true, sourceReplyDeliveryMode: 'message_tool_only' });
   const connect = async (id = 'alice') => {
     const client = new Client({ name: 'bridge-test', version: '1.0' });
     await client.connect(new StreamableHTTPClientTransport(f.url, { requestInit: { headers: { Authorization: f.header(id) } } }));

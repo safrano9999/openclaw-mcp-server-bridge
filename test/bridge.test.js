@@ -12,14 +12,38 @@ test('selected inbound is captured without a client; unrelated agents are untouc
   assert.equal(f.bridge.mailbox(f.principal('bob')).count().pending, 0);
   assert.deepEqual(f.captured.hookOptions.eligibleDispatchKinds, ['agent']);
 });
-test('capture errors and unauthorized delivery fail closed for selected agents', async () => {
+test('capture errors and unauthorized senders fail closed for selected agents', async () => {
   const f = await fixture();
   for (const ctx of [{ InboundAccessAuthorized: false }, { AgentId: 'bob' }]) assert.equal(f.receive({}, ctx).handled, true);
-  assert.equal(f.receive({ sendPolicy: 'deny' }).handled, true);
   f.host.getSessionEntry = () => { throw Error('secret upstream error'); };
   assert.equal(f.receive().handled, true);
   assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
   assert(!f.logs.some(m => m.includes('secret upstream')));
+});
+test('message-tool-only turns enter the FIFO, update the route and allow explicit MCP replies', async () => {
+  const f = await fixture();
+  f.receive();
+  f.receive({ suppressUserDelivery: true, sourceReplyDeliveryMode: 'message_tool_only', originatingTo: '456' },
+    { SenderId: 'latest-sender', MessageSid: '2' });
+  const box = f.bridge.mailbox(f.principal());
+  assert.equal(box.count().pending, 2);
+  assert.equal(box.resolve().to, '456');
+  assert.equal(box.resolve().senderId, 'latest-sender');
+  assert.deepEqual(box.consume(2).messages.map(m => m.message_id), ['1', '2']);
+  const result = await f.bridge.send(f.principal(), { text: 'explicit reply' }, new AbortController().signal);
+  assert.equal(result.status, 'sent');
+  assert.equal(f.sent[0].to, '456');
+});
+test('outbound denial does not discard authorized inbound messages or their return route', async () => {
+  const f = await fixture();
+  f.host.resolveSendPolicy = () => 'deny';
+  f.receive({ sendPolicy: 'deny', suppressUserDelivery: true, sourceReplyDeliveryMode: 'none' });
+  const box = f.bridge.mailbox(f.principal());
+  assert.equal(box.count().pending, 1);
+  assert.equal(box.resolve().to, '123');
+  assert.equal(box.consume().messages[0].text, 'hello');
+  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
+  assert.equal(f.sent.length, 0);
 });
 test('outbound uses the current account/topic; consumption leaves the destination intact', async () => {
   const f = await fixture();

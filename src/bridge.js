@@ -116,7 +116,8 @@ export function registerBridge(api, host) {
       if (!ready) throw new BridgeError('not_ready');
       if (!agentId || !sessionKey || (parsed && parsed !== agentId)) throw new BridgeError('ambiguous_agent');
       if (ctx.InboundAccessAuthorized !== true) throw new BridgeError('inbound_not_authorized');
-      if (event.sendPolicy !== 'allow' || event.suppressUserDelivery || event.sourceReplyDeliveryMode === 'none') throw new BridgeError('delivery_not_allowed');
+      // Inbound admission is independent of automatic replies and outbound send policy.
+      // Explicit MCP sends check the current send policy at platform handoff.
       const channel = event.originatingChannel ?? ctx.OriginatingChannel;
       const to = event.originatingTo ?? ctx.OriginatingTo;
       const accountId = event.originatingAccountId ?? ctx.AccountId;

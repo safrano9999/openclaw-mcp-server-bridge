@@ -39,6 +39,8 @@ openclaw mcp-bridge client-config carassistant --url https://your-gateway.exampl
 
 Each agent has its own FIFO and exactly one current return route, `actual_channel`. Every accepted incoming message creates one FIFO entry and replaces that agent’s current route with its complete source: channel, account, destination, thread and session.
 
+Incoming messages are admitted using the channel's sender authorization. Disabling automatic replies or denying outbound delivery does not discard an authorized incoming message. `send_message` separately checks the current outbound policy before sending.
+
 For example, messages arriving through Telegram, then Discord, leave Discord as the current outgoing destination. Reading or draining older FIFO entries never changes the current route. Different agents keep independent queues and destinations.
 
 There is no historical route selector. `send_message` accepts only text and always uses the most recently accepted source. The client cannot supply a chat ID or choose an older message’s destination. The latest return route for each agent is saved atomically in `<OpenClaw state directory>/openclaw-mcp-server-bridge/routes.json` and survives gateway restarts. Every newly accepted incoming message replaces that agent's saved destination, including its sender, channel, account and thread. FIFO consumption and message expiry never change it. The file contains no message bodies or bearer tokens and belongs on the existing persistent OpenClaw volume.
