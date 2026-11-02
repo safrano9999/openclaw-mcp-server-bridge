@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseAgentSessionKey } from 'openclaw/plugin-sdk/routing';
 import { sendDurableMessageBatch, buildOutboundSessionContext } from 'openclaw/plugin-sdk/channel-outbound';
-import { getSessionEntry, resolveStorePath, resolveSendPolicy, upsertSessionEntry } from 'openclaw/plugin-sdk/session-store-runtime';
+import { getSessionEntry, resolveStorePath, resolveSendPolicy, upsertSessionEntry, deliveryContextFromSession } from 'openclaw/plugin-sdk/session-store-runtime';
 import plugin from '../dist/index.js';
+import { resolveDelivery } from '../src/delivery.js';
 import { ID, PATH } from '../src/state.js';
 import { ICON_PATH } from '../src/browser.js';
 
@@ -17,7 +18,7 @@ const scratch = await mkdtemp(join(tmpdir(), 'bridge-host-contract-'));
 try {
   const storePath = resolveStorePath(join(scratch, 'sessions.json'), { agentId: 'bridge-test' });
   const sessionKey = 'agent:bridge-test:telegram:direct:123';
-  await upsertSessionEntry({ storePath, agentId: 'bridge-test', sessionKey, entry: { sessionId: 'contract-session', updatedAt: Date.now() } });
+  await upsertSessionEntry({ storePath, agentId: 'bridge-test', sessionKey, entry: { sessionId: 'contract-session', updatedAt: Date.now(), delivery: {kind:'external',route:{channel:'telegram',accountId:'default',target:'123'},context:{channel:'telegram',accountId:'default',to:'123'}} } });
   const entry = getSessionEntry({ storePath, agentId: 'bridge-test', sessionKey });
   assert.equal(entry.sessionId, 'contract-session');
   assert.equal(resolveSendPolicy({ cfg: {}, entry, sessionKey, channel: 'telegram', chatType: 'direct' }), 'allow');
@@ -25,6 +26,13 @@ try {
   assert.equal(context.key, sessionKey); assert.equal(context.agentId, 'bridge-test');
   let config = { agents: { entries: { 'bridge-test': {} } }, session: { store: join(scratch, 'sessions.json') },
     plugins: { entries: { [ID]: { enabled: true, config: { bearer: 'a'.repeat(64) } } } } };
+  config.agents.defaults={systemAgent:{agentId:'bridge-test'}};
+  config.channels={telegram:{defaultAccount:'default',accounts:{default:{}}}};
+  config.bindings=[{agentId:'bridge-test',match:{channel:'telegram',accountId:'default'}}];
+  const normalized={...entry,deliveryContext:deliveryContextFromSession(entry)};
+  assert.equal(normalized.deliveryContext.to,'123');
+  const resolved=resolveDelivery(config,{session:sessionKey},()=>normalized);
+  assert.equal(resolved.to,'123'); assert.equal(resolved.accountId,'default');
   let hook, service, route;
   const routes = [];
   plugin.register({ config, pluginConfig: config.plugins.entries[ID].config,

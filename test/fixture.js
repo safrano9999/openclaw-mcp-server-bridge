@@ -27,6 +27,7 @@ export async function fixture(options = {}) {
     getSessionEntry: ({ agentId }) => ({ sessionId: 'session-1', deliveryContext: {
       channel: 'telegram', accountId: agentId === 'bob' ? 'bot-b' : 'bot-a', to: agentId === 'bob' ? '456' : '123' } }),
     resolveStorePath: () => '/fake/state',
+    deliveryContextFromSession: entry => entry.deliveryContext,
     resolveSendPolicy: ({ cfg }) => cfg.session?.sendPolicy?.default ?? 'allow',
     buildOutboundSessionContext: value => value,
     sendDurableMessageBatch: async params => { await params.onPlatformSendDispatch(); sent.push(params); return { status: 'sent', results: [{ messageId: 'sent-1' }] }; },

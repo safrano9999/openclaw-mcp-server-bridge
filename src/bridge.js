@@ -49,7 +49,8 @@ export function registerBridge(api, host) {
     return authenticate(header, conf) ? { token: conf.bearer } : undefined;
   }
   function entryFor(cfg, agentId, sessionKey) {
-    return host.getSessionEntry({ agentId, sessionKey, storePath: host.resolveStorePath(cfg.session?.store, { agentId }) });
+    const entry = host.getSessionEntry({ agentId, sessionKey, storePath: host.resolveStorePath(cfg.session?.store, { agentId }) });
+    return entry ? { ...entry, deliveryContext: host.deliveryContextFromSession(entry) } : undefined;
   }
   async function send(principal, args, signal, guard = () => {}) {
     let cfg = assertPrincipal(principal);
