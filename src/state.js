@@ -9,34 +9,25 @@ export class BridgeError extends Error {
 }
 export function settings(cfg) {
   const value = cfg.plugins?.entries?.[ID]?.config ?? {};
-  const ids = value.agentIds ?? [];
-  if (!Array.isArray(ids) || ids.length > 64 || new Set(ids).size !== ids.length ||
-      ids.some(id => typeof id !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(id))) throw new BridgeError('invalid_agent_ids');
   const known = new Set([...Object.keys(cfg.agents?.entries ?? {}), ...(cfg.agents?.list ?? []).map(a => a.id)]);
   if (!known.size) known.add('main');
-  if (ids.some(id => !known.has(id))) throw new BridgeError('unknown_agent');
-  const credentials = value.credentials ?? {};
-  if (!credentials || typeof credentials !== 'object' || Array.isArray(credentials)) throw new BridgeError('invalid_credentials');
-  const tokens = Object.values(credentials);
-  if (tokens.some(t => typeof t !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(t)) || new Set(tokens).size !== tokens.length) throw new BridgeError('invalid_credentials');
-  if (ids.some(id => !Object.hasOwn(credentials, id))) throw new BridgeError('missing_credentials');
+  const bearer = value.bearer ?? '';
+  if (typeof bearer !== 'string' || (bearer && !/^[A-Za-z0-9_-]{43,128}$/.test(bearer))) throw new BridgeError('invalid_bearer');
+  const defaultChannel = value.defaultChannel ?? '';
+  if (typeof defaultChannel !== 'string' || (defaultChannel && !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(defaultChannel))) throw new BridgeError('invalid_default_channel');
   const allowedOrigins = value.allowedOrigins ?? [];
   if (!Array.isArray(allowedOrigins) || allowedOrigins.length > 16 || allowedOrigins.some(o => {
     try { return new URL(o).origin !== o || !/^https?:/.test(o) || o.length > 256; } catch { return true; }
   })) throw new BridgeError('invalid_origins');
   const { direct = false, directFifo = false } = value;
   if (typeof direct !== 'boolean' || typeof directFifo !== 'boolean') throw new BridgeError('invalid_direct_settings');
-  return { agentIds: ids, credentials, allowedOrigins, direct, directFifo };
+  return { agentIds: [...known], bearer, defaultChannel, allowedOrigins, direct, directFifo };
 }
 export function authenticate(header, config) {
-  if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9_-]{43,128}$/i.test(header)) return undefined;
+  if (!config.bearer) return true;
+  if (typeof header !== 'string' || !/^Bearer [A-Za-z0-9_-]{43,128}$/i.test(header)) return false;
   const supplied = Buffer.from(header.slice(7));
-  let owner;
-  for (const id of config.agentIds) {
-    const token = Object.hasOwn(config.credentials, id) ? config.credentials[id] : undefined;
-    if (token && supplied.length === Buffer.byteLength(token) && timingSafeEqual(supplied, Buffer.from(token))) owner = id;
-  }
-  return owner;
+  return supplied.length === Buffer.byteLength(config.bearer) && timingSafeEqual(supplied, Buffer.from(config.bearer));
 }
 export function routeEpoch(cfg) {
   // Changes to routing/admission configuration revoke all old grants. Never log this input.

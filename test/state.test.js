@@ -34,23 +34,15 @@ test('mixed-source FIFO entries never change the latest accepted destination whe
   assert.equal(box.consume().messages[0].text, 'second');
   assert.equal(box.resolve(), current);
 });
-test('injected hex and base64url bearers isolate principals without generating tokens', () => {
-  const cfg = { agents: { list: [{ id: 'a' }, { id: 'b' }] }, plugins: { entries: { [ID]: {
-    config: { agentIds: ['a', 'b'], credentials: { a: 'a'.repeat(64), b: 'b'.repeat(43) } },
-  } } } };
-  const before = structuredClone(cfg);
-  const conf = settings(cfg);
-  assert.deepEqual(cfg, before);
-  assert.equal(authenticate(`Bearer ${conf.credentials.a}`, conf), 'a');
-  assert.equal(authenticate(`Bearer ${conf.credentials.b}`, conf), 'b');
-  assert.equal(authenticate(`Bearer ${'c'.repeat(64)}`, conf), undefined);
-  assert.equal(authenticate('Bearer wrong', conf), undefined);
-  cfg.plugins.entries[ID].config.agentIds = ['a'];
-  assert.equal(authenticate(`Bearer ${conf.credentials.b}`, settings(cfg)), undefined);
-  delete cfg.plugins.entries[ID].config.credentials.a;
-  assert.throws(() => settings(cfg), /missing_credentials/);
-  cfg.plugins.entries[ID].config.agentIds = ['missing'];
-  assert.throws(() => settings(cfg), /unknown_agent/);
+test('one optional bearer protects every agent without generating credentials', () => {
+  const cfg = {agents:{entries:{a:{},b:{}}},plugins:{entries:{[ID]:{config:{bearer:'a'.repeat(64)}}}}};
+  const before=structuredClone(cfg), conf=settings(cfg);
+  assert.deepEqual(cfg,before);
+  assert.equal(authenticate('Bearer '+conf.bearer,conf),true);
+  assert.equal(authenticate('Bearer wrong',conf),false);
+  assert.equal(authenticate(undefined,conf),false);
+  cfg.plugins.entries[ID].config.bearer='';
+  assert.equal(authenticate(undefined,settings(cfg)),true);
 });
 test('a new accepted source replaces the only route without rewriting queued messages', () => {
   const box = new Mailbox();
@@ -81,12 +73,7 @@ test('a failed route write does not acknowledge a message or suppress its retry'
   assert.equal(box.enqueue(route, { text: 'first' }, '1'), true);
   assert.equal(box.count().pending, 1);
 });
-test('prototype names require an explicitly supplied bearer', () => {
-  const cfg = { agents: { entries: { constructor: {} } }, plugins: { entries: { [ID]: { config: {
-    agentIds: ['constructor'], credentials: {},
-  } } } } };
-  assert.throws(() => settings(cfg), /missing_credentials/);
-  cfg.plugins.entries[ID].config.credentials.constructor = 'c'.repeat(64);
-  const conf = settings(cfg);
-  assert.equal(authenticate(`Bearer ${conf.credentials.constructor}`, conf), 'constructor');
+test('agent selection includes only own configured entries',()=>{
+ const cfg={agents:{entries:{main:{}}}};
+ assert.deepEqual(settings(cfg).agentIds,['main']);
 });

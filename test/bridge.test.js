@@ -1,155 +1,77 @@
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './fixture.js';
 import { ID } from '../src/state.js';
-import { readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
-test('selected inbound is captured without a client; unrelated agents are untouched', async () => {
+const signal = () => new AbortController().signal;
+test('omitted and explicit defaults resolve the same main session and bound account', async () => {
   const f = await fixture();
-  assert.equal(f.receive().handled, true);
-  assert.equal(f.receive({ sessionKey: 'agent:normal:main' }, { AgentId: 'normal' }), undefined);
-  assert.equal(f.bridge.mailbox(f.principal()).count().pending, 1);
-  assert.equal(f.bridge.mailbox(f.principal('bob')).count().pending, 0);
-  assert.deepEqual(f.captured.hookOptions.eligibleDispatchKinds, ['agent']);
-});
-test('capture errors and unauthorized senders fail closed for selected agents', async () => {
-  const f = await fixture();
-  for (const ctx of [{ InboundAccessAuthorized: false }, { AgentId: 'bob' }]) assert.equal(f.receive({}, ctx).handled, true);
-  f.host.getSessionEntry = () => { throw Error('secret upstream error'); };
-  assert.equal(f.receive().handled, true);
-  assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
-  assert(!f.logs.some(m => m.includes('secret upstream')));
-});
-test('message-tool-only turns enter the FIFO, update the route and allow explicit MCP replies', async () => {
-  const f = await fixture();
-  f.receive();
-  f.receive({ suppressUserDelivery: true, sourceReplyDeliveryMode: 'message_tool_only', originatingTo: '456' },
-    { SenderId: 'latest-sender', MessageSid: '2' });
-  const box = f.bridge.mailbox(f.principal());
-  assert.equal(box.count().pending, 2);
-  assert.equal(box.resolve().to, '456');
-  assert.equal(box.resolve().senderId, 'latest-sender');
-  assert.deepEqual(box.consume(2).messages.map(m => m.message_id), ['1', '2']);
-  const result = await f.bridge.send(f.principal(), { text: 'explicit reply' }, new AbortController().signal);
-  assert.equal(result.status, 'sent');
-  assert.equal(f.sent[0].to, '456');
-});
-test('outbound denial does not discard authorized inbound messages or their return route', async () => {
-  const f = await fixture();
-  f.host.resolveSendPolicy = () => 'deny';
-  f.receive({ sendPolicy: 'deny', suppressUserDelivery: true, sourceReplyDeliveryMode: 'none' });
-  const box = f.bridge.mailbox(f.principal());
-  assert.equal(box.count().pending, 1);
-  assert.equal(box.resolve().to, '123');
-  assert.equal(box.consume().messages[0].text, 'hello');
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
-  assert.equal(f.sent.length, 0);
-});
-test('outbound uses the current account/topic; consumption leaves the destination intact', async () => {
-  const f = await fixture();
-  f.receive({ originatingThreadId: 42 });
-  f.bridge.mailbox(f.principal()).consume();
-  await assert.rejects(f.bridge.send(f.principal('bob'), { text: 'no' }, new AbortController().signal), /no_return_route/);
-  const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
-  assert.equal(result.status, 'sent');
-  assert.equal(f.sent[0].accountId, 'bot-a'); assert.equal(f.sent[0].threadId, 42); assert.equal(f.sent[0].to, '123');
-  assert.equal(f.sent[0].session.agentId, 'alice');
-  assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
-});
-test('all outgoing text follows the latest accepted source, regardless of FIFO position', async () => {
-  const f = await fixture();
-  f.receive();
-  f.receive({ originatingChannel: 'discord', originatingTo: 'discord-room', originatingAccountId: 'discord-bot', originatingThreadId: 'topic' }, { MessageSid: '2' });
-  assert.equal(f.bridge.mailbox(f.principal()).consume().messages[0].channel, 'telegram');
-  const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
-  assert.equal(result.status, 'sent');
-  assert.equal(f.sent[0].channel, 'discord');
-  assert.equal(f.sent[0].accountId, 'discord-bot');
-  assert.equal(f.sent[0].to, 'discord-room');
-  assert.equal(f.sent[0].threadId, 'topic');
-});
-test('removal, token changes, routing changes and session reset revoke access', async () => {
-  const f = await fixture(); f.receive();
-  const p = f.principal();
-  f.config().plugins.entries[ID].config.credentials.alice = 'x'.repeat(43);
-  assert.throws(() => f.bridge.mailbox(p), /credential_revoked/);
-  f.config().bindings = [{ agentId: 'bob', match: { channel: 'telegram' } }];
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /no_return_route/);
-  f.receive(); f.host.getSessionEntry = () => ({ sessionId: 'new-session' });
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /session_changed/);
-  f.config().plugins.entries[ID].config.agentIds = [];
-  assert.equal(f.bridge.authorize(f.header()), undefined);
-});
-test('fresh per-session send policy is checked before platform handoff', async () => {
-  const f = await fixture(); f.receive();
-  f.host.resolveSendPolicy = () => 'deny';
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
-  assert.equal(f.sent.length, 0);
-});
-test('partial/suppressed/uncertain delivery never becomes success or automatic retry', async () => {
-  const f = await fixture(); f.receive();
-  for (const status of ['partial_failed', 'suppressed', 'failed']) {
-    let calls = 0; f.host.sendDurableMessageBatch = async () => { calls++; return { status, results: [{ messageId: 'a' }] }; };
-    const result = await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal);
-    assert.equal(result.retry_safe, false); assert.notEqual(result.status, 'sent'); assert.equal(calls, 1);
+  for (const args of [{}, {agent:'default',session:'default',channel:'default',accountId:'default',target:'default'}]) {
+    assert.equal((await f.bridge.send(f.principal(), {text:'hello',...args}, signal())).status, 'sent');
+    const sent = f.sent.at(-1);
+    assert.equal(sent.channel, 'telegram'); assert.equal(sent.accountId, 'bot-a'); assert.equal(sent.to, '123');
+    assert.equal(sent.session.sessionKey, 'agent:alice:main');
   }
 });
-test('a narrower runtime policy key cannot be bypassed by a broad main session', async () => {
+test('explicit agent uses its binding and cannot address another agent session', async () => {
   const f = await fixture();
-  f.receive({}, { RuntimePolicySessionKey: 'agent:alice:telegram:group:blocked' });
-  f.host.resolveSendPolicy = ({ sessionKey }) => sessionKey.endsWith(':blocked') ? 'deny' : 'allow';
-  await assert.rejects(f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal), /send_policy_denied/);
-  assert.equal(f.sent.length, 0);
+  await f.bridge.send(f.principal(), {text:'coordinates',agent:'bob'}, signal());
+  assert.equal(f.sent[0].accountId, 'bot-b'); assert.equal(f.sent[0].to, '456');
+  await assert.rejects(f.bridge.send(f.principal(), {text:'wrong',agent:'bob',session:'agent:alice:main'}, signal()), /session_agent_mismatch/);
 });
-test('restart clears queues but preserves the current return route and credentials', async () => {
-  const f = await fixture(); f.receive(); const token = f.header();
-  await f.captured.service.stop(); await f.captured.service.start();
-  assert.equal(f.header(), token); assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
-  assert.equal((await f.bridge.send(f.principal(), { text: 'reply' }, new AbortController().signal)).status, 'sent');
-});
-test('a new process restores only the latest destination, independently for each agent', async () => {
+test('ambiguous channels require preference; another last channel cannot change default', async () => {
   const f = await fixture();
-  f.receive();
-  f.receive({ sessionKey: 'agent:bob:telegram:direct:456', originatingTo: '456', originatingAccountId: 'bot-b' },
-    { AgentId: 'bob', SessionKey: 'agent:bob:telegram:direct:456', SenderId: 'bob-sender', MessageSid: '2' });
-  f.receive({ originatingChannel: 'discord', originatingTo: 'room', originatingAccountId: 'discord-bot', originatingThreadId: 'thread' },
-    { SenderId: 'latest-sender', MessageSid: '3' });
-  f.bridge.mailbox(f.principal()).consume(2);
-  const file = join(f.stateDir, ID, 'routes.json');
-  const stored = JSON.parse(readFileSync(file, 'utf8'));
-  assert.equal(stored.routes.alice.senderId, 'latest-sender');
-  assert.equal(Object.keys(stored.routes).length, 2);
-  assert.equal(statSync(file).mode & 0o777, 0o600);
-  assert.ok(!readFileSync(file, 'utf8').includes(f.header().slice(7)));
-  await f.captured.service.stop();
-  const fresh = await fixture({ stateDir: f.stateDir });
-  assert.equal(fresh.bridge.mailbox(fresh.principal()).count().pending, 0);
-  await fresh.bridge.send(fresh.principal(), { text: 'after restart' }, new AbortController().signal);
-  assert.equal(fresh.sent[0].channel, 'discord');
-  assert.equal(fresh.sent[0].to, 'room');
-  assert.equal(fresh.sent[0].threadId, 'thread');
-  await fresh.bridge.send(fresh.principal('bob'), { text: 'bob reply' }, new AbortController().signal);
-  assert.equal(fresh.sent[1].to, '456');
-  // The next sender replaces the persisted route again, without a client reconnect.
-  fresh.receive({ originatingTo: '789' }, { SenderId: 'new-sender', MessageSid: '4' });
-  assert.equal(JSON.parse(readFileSync(file, 'utf8')).routes.alice.to, '789');
-  await fresh.bridge.send(fresh.principal(), { text: 'latest reply' }, new AbortController().signal);
-  assert.equal(fresh.sent[2].to, '789');
+  f.config().bindings.push({agentId:'alice',match:{channel:'discord',accountId:'discord-bot'}});
+  await assert.rejects(f.bridge.send(f.principal(), {text:'ambiguous'}, signal()), /ambiguous_default_channel/);
+  f.config().plugins.entries[ID].config.defaultChannel = 'telegram';
+  f.host.getSessionEntry = () => ({sessionId:'s',deliveryContext:{channel:'discord',accountId:'discord-bot',to:'room'}});
+  await assert.rejects(f.bridge.send(f.principal(), {text:'no telegram recipient'}, signal()), /no_default_target/);
+  await f.bridge.send(f.principal(), {text:'explicit last',channel:'last'}, signal());
+  assert.equal(f.sent[0].channel,'discord');
+  await f.bridge.send(f.principal(), {text:'explicit target',target:'123'}, signal());
+  assert.equal(f.sent[1].channel,'telegram');
 });
-test('a routing change while stopped cannot restore obsolete destinations', async () => {
-  const f = await fixture(); f.receive();
-  await f.captured.service.stop();
-  const fresh = await fixture({ stateDir: f.stateDir, skipStart: true });
-  fresh.config().bindings = [{ agentId: 'bob', match: { channel: 'telegram' } }];
-  await fresh.captured.service.start();
-  await assert.rejects(fresh.bridge.send(fresh.principal(), { text: 'reply' }, new AbortController().signal), /no_return_route/);
-  assert.deepEqual(JSON.parse(readFileSync(join(f.stateDir, ID, 'routes.json'), 'utf8')).routes, {});
+test('peer binding supports delivery before first inbound message', async () => {
+  const f = await fixture({host:{getSessionEntry:()=>undefined}});
+  f.config().bindings[0].match.peer={kind:'direct',id:'peer-1'};
+  await f.bridge.send(f.principal(),{text:'hello'},signal());
+  assert.equal(f.sent[0].to,'peer-1');
 });
-test('disabled plugin releases dispatch and broken diagnostics cannot release a selected turn', async () => {
-  const f = await fixture({ logger: { warn() { throw Error('logger failed'); } } });
-  f.config().plugins.entries[ID].enabled = false;
-  assert.equal(f.receive(), undefined);
-  f.config().plugins.entries[ID].enabled = true;
-  f.host.getSessionEntry = () => { throw Error('read failure'); };
-  assert.equal(f.receive().handled, true);
+test('inbound queues are agent selected and do not suppress normal replies', async () => {
+  const f=await fixture();
+  assert.equal(f.receive(),undefined);
+  assert.equal(f.bridge.mailbox(f.principal()).count().pending,1);
+  assert.equal(f.bridge.mailbox(f.principal(),{agent:'bob'}).count().pending,0);
+  f.receive({}, {InboundAccessAuthorized:false,MessageSid:'2'});
+  assert.equal(f.bridge.mailbox(f.principal()).count().pending,1);
+});
+test('fresh send policy and credentials are checked before delivery', async () => {
+  const f=await fixture(); const principal=f.principal();
+  f.config().plugins.entries[ID].config.bearer='b'.repeat(64);
+  assert.throws(()=>f.bridge.mailbox(principal),/credential_revoked/);
+  f.host.resolveSendPolicy=()=> 'deny';
+  await assert.rejects(f.bridge.send(f.principal(),{text:'blocked'},signal()),/send_policy_denied/);
+  assert.equal(f.sent.length,0);
+});
+test('changed route at platform handoff is rejected', async () => {
+  const f=await fixture();
+  f.host.sendDurableMessageBatch=async params=>{
+    f.host.getSessionEntry=()=>({sessionId:'changed',deliveryContext:{channel:'telegram',accountId:'bot-a',to:'different'}});
+    params.onPlatformSendDispatch();
+  };
+  await assert.rejects(f.bridge.send(f.principal(),{text:'race'},signal()),/route_revoked/);
+});
+test('uncertain and partial sends are never retried automatically', async () => {
+  const f=await fixture();
+  for(const status of ['partial_failed','suppressed','failed']) {
+    let calls=0; f.host.sendDurableMessageBatch=async()=>{calls++;return {status,results:[]};};
+    const r=await f.bridge.send(f.principal(),{text:'once'},signal());
+    assert.equal(r.retry_safe,false); assert.equal(calls,1);
+  }
+});
+test('restart clears queues and keeps configured default delivery usable', async () => {
+  const f=await fixture();f.receive();
+  await f.captured.service.stop();await f.captured.service.start();
+  assert.equal(f.bridge.mailbox(f.principal()).count().pending,0);
+  assert.equal((await f.bridge.send(f.principal(),{text:'restarted'},signal())).status,'sent');
 });

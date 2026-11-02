@@ -1,3 +1,4 @@
+
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -6,43 +7,34 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { fixture } from './fixture.js';
 async function listen(t) {
-  const f = await fixture();
-  const server = createServer((req, res) => { void f.captured.route.handler(req, res); });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  const url = new URL(`http://127.0.0.1:${server.address().port}/mcp`);
-  return { ...f, url };
+ const f=await fixture();
+ const server=createServer((req,res)=>{void f.captured.route.handler(req,res);});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+ t.after(async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));});
+ return {...f,url:new URL('http://127.0.0.1:'+server.address().port+'/mcp')};
 }
-test('real MCP initialize, tool discovery, isolation, consumption, reconnect and native send', async t => {
-  const f = await listen(t); f.receive({ originatingThreadId: 99, suppressUserDelivery: true, sourceReplyDeliveryMode: 'message_tool_only' });
-  const connect = async (id = 'alice') => {
-    const client = new Client({ name: 'bridge-test', version: '1.0' });
-    await client.connect(new StreamableHTTPClientTransport(f.url, { requestInit: { headers: { Authorization: f.header(id) } } }));
-    t.after(() => client.close()); return client;
-  };
-  const alice = await connect(); const bob = await connect('bob');
-  assert.deepEqual((await alice.listTools()).tools.map(t => t.name).sort(), ['new_message', 'pending_count', 'send_message']);
-  assert.deepEqual(Object.keys((await alice.listTools()).tools.find(t => t.name === 'send_message').inputSchema.properties), ['text']);
-  assert.equal((await bob.callTool({ name: 'pending_count', arguments: {} })).structuredContent.pending, 0);
-  const message = (await alice.callTool({ name: 'new_message', arguments: {} })).structuredContent.messages[0];
-  assert.equal(message.text, 'hello');
-  const stolen = await bob.callTool({ name: 'send_message', arguments: { text: 'wrong' } });
-  assert.equal(stolen.isError, true);
-  const sent = await alice.callTool({ name: 'send_message', arguments: { text: 'right' } });
-  assert.equal(sent.structuredContent.status, 'sent'); assert.equal(f.sent[0].threadId, 99);
-  await alice.close(); f.receive({}, { MessageSid: '2' });
-  const again = await connect();
-  assert.equal((await again.callTool({ name: 'pending_count', arguments: {} })).structuredContent.pending, 1);
+test('real MCP discovery, per-agent consumption and default native send',async t=>{
+ const f=await listen(t); f.receive();
+ const c=new Client({name:'test',version:'1'});
+ await c.connect(new StreamableHTTPClientTransport(f.url,{requestInit:{headers:{Authorization:f.header()}}}));
+ t.after(()=>c.close());
+ const tools=(await c.listTools()).tools.map(t=>t.name);
+ for(const name of ['new_message','pending_count','send_message']) assert(tools.includes(name));
+ assert.equal((await c.callTool({name:'pending_count',arguments:{agent:'bob'}})).structuredContent.pending,0);
+ assert.equal((await c.callTool({name:'new_message',arguments:{}})).structuredContent.messages[0].text,'hello');
+ assert.equal((await c.callTool({name:'send_message',arguments:{text:'hello'}})).structuredContent.status,'sent');
+ assert.equal(f.sent[0].to,'123');
 });
-test('HTTP auth, Origin, methods, content type, size and malformed input checks', async t => {
-  const f = await listen(t);
-  assert.equal((await fetch(f.url)).status, 401);
-  const headers = { Authorization: f.header(), 'content-type': 'application/json', Accept: 'application/json, text/event-stream' };
-  assert.equal((await fetch(f.url, { headers })).status, 405);
-  assert.equal((await fetch(f.url, { method: 'POST', headers: { ...headers, Origin: 'https://evil.example' }, body: '{}' })).status, 403);
-  assert.equal((await fetch(f.url, { method: 'POST', headers, body: 'x'.repeat(131073) })).status, 413);
-  assert.equal((await fetch(f.url, { method: 'POST', headers, body: 'bad json' })).status, 400);
-  assert.equal((await fetch(f.url, { method: 'POST', headers, body: '[]' })).status, 400);
+test('HTTP rejects missing credentials, foreign origins and malformed bodies',async t=>{
+ const f=await listen(t);
+ assert.equal((await fetch(f.url)).status,401);
+ const headers={Authorization:f.header(),'content-type':'application/json',Accept:'application/json, text/event-stream'};
+ const post=(body,h=headers)=>fetch(f.url,{method:'POST',headers:h,body});
+ assert.equal((await fetch(f.url,{headers})).status,405);
+ assert.equal((await post('{}',{...headers,Origin:'https://evil.example'})).status,403);
+ assert.equal((await post('x'.repeat(10*1024*1024+1))).status,413);
+ assert.equal((await post('bad json')).status,400);
+ assert.equal((await post('[]')).status,400);
 });
 test('browser landing and favicon are public; MCP requests still require the assigned bearer', async t => {
   const f = await listen(t);
@@ -67,39 +59,24 @@ test('browser landing and favicon are public; MCP requests still require the ass
   assert.equal((await fetch(f.url, { method: 'POST', headers: { Accept: 'text/html' }, body: '{}' })).status, 401);
   assert.equal(f.bridge.mailbox(f.principal()).count().pending, 0);
 });
-test('direct webhook is opt-in, bearer-scoped and preserves the channel route', async t => {
-  const f = await listen(t); const url = new URL('/mcp/direct', f.url);
-  const config = f.config().plugins.entries['openclaw-mcp-server-bridge'].config;
-  const post = (body, token = f.header()) => fetch(url, { method: 'POST', headers: {
-    Authorization: token, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  assert.equal((await post({text:'coordinates'})).status, 404);
-  config.direct = true;
-  assert.equal((await post({text:'coordinates'}, 'Bearer invalid')).status, 401);
-  assert.equal((await post({text:'coordinates', to:'attacker'})).status, 400);
-  assert.equal((await post({text:'coordinates'})).status, 409);
-  config.directFifo = true;
-  const queued = await post({text:'coordinates', event_id:'first', payload:{latitude:52, longitude:13}});
-  assert.equal(queued.status, 202);
-  assert.equal((await queued.json()).delivery_error, 'no_return_route');
-  const box = f.bridge.mailbox(f.principal());
-  assert.equal(box.actual_channel, undefined);
-  assert.equal(f.bridge.mailbox(f.principal('bob')).count().pending, 0);
-  assert.equal((await post({text:'coordinates', event_id:'first'})).status, 200);
-  assert.equal(box.count().pending, 1);
-  const input = box.consume().messages[0];
-  assert.equal(input.channel, 'webhook'); assert.equal(input.payload.latitude, 52);
-  f.receive(); const route = box.actual_channel;
-  const sent = await post({text:'new position', event_id:'second'});
-  assert.equal(sent.status, 200); assert.equal((await sent.json()).fifo_enqueued, true);
-  assert.equal(box.actual_channel, route); assert.equal(f.sent[0].to, '123');
-  assert.equal(box.count().pending, 2);
-  config.directFifo = false;
-  await post({text:'outbound only'}); assert.equal(box.count().pending, 2);
-  f.receive({originatingChannel:'discord', originatingTo:'456'}, {MessageSid:'2'});
-  await post({text:'latest route'}); assert.equal(f.sent.at(-1).channel, 'discord');
-  assert.equal(f.sent.at(-1).to, '456');
-  f.host.resolveSendPolicy = () => 'deny';
-  assert.equal((await post({text:'blocked'})).status, 403);
-  config.direct = false;
-  assert.equal((await post({text:'disabled'})).status, 404);
+
+test('direct text uses defaults; OwnTracks selects its agent; bearer can be absent',async t=>{
+ const f=await listen(t),url=new URL('/mcp/direct',f.url);
+ const conf=f.config().plugins.entries['openclaw-mcp-server-bridge'].config;
+ const post=(body,token=f.header())=>fetch(url,{method:'POST',headers:{
+  ...(token?{Authorization:token}:{}),'content-type':'application/json'},body:JSON.stringify(body)});
+ assert.equal((await post({text:'off'})).status,404);
+ conf.direct=true;
+ assert.equal((await post({text:'wrong'},'Bearer invalid')).status,401);
+ assert.equal((await post({text:'unknown',to:'bad'})).status,400);
+ assert.equal((await post({text:'default'})).status,200);
+ assert.equal(f.sent.at(-1).to,'123');
+ conf.directFifo=true;
+ assert.equal((await post({text:'coordinates',agent:'bob',event_id:'one',payload:{lat:52}})).status,200);
+ assert.equal(f.sent.at(-1).accountId,'bot-b');
+ assert.equal(f.bridge.mailbox(f.principal(),{agent:'bob'}).count().pending,1);
+ assert.equal((await post({text:'coordinates',agent:'bob',event_id:'one'})).status,200);
+ assert.equal(f.bridge.mailbox(f.principal(),{agent:'bob'}).count().pending,1);
+ conf.bearer='';
+ assert.equal((await post({text:'open'},null)).status,200);
 });

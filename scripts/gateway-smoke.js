@@ -17,18 +17,16 @@ await new Promise(resolve => available.close(resolve));
 const gatewayToken = randomBytes(32).toString('hex');
 const bridgeToken = randomBytes(32).toString('hex');
 cfg.gateway = { mode: 'local', port, bind: 'loopback', auth: { mode: 'token', token: gatewayToken }, controlUi: { enabled: false } };
-cfg.agents = { entries: { 'bridge-test': {} } };
+cfg.agents = { defaults: { systemAgent: { agentId: 'bridge-test' } }, entries: { 'bridge-test': {} } };
 cfg.plugins ??= {}; cfg.plugins.entries ??= {};
-cfg.plugins.entries[ID] = { enabled: true, config: { agentIds: [] } };
+cfg.plugins.entries[ID] = { enabled: true, config: {} };
 await writeFile(configPath, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
 execFileSync('python3', ['image/init/20-openclaw-mcp-bridge.py'], {
   env: { ...process.env, PATH: `${process.cwd()}/node_modules/.bin:${process.env.PATH}`,
     OPENCLAW_CONFIG: configPath, OPENCLAW_CONFIG_PATH: configPath,
-    OPENCLAW_MCP_BRIDGE_AGENT: 'bridge-test', OPENCLAW_MCP_BRIDGE_BEARER: bridgeToken,
-    OPENCLAW_MCP_BRIDGE_AGENT_02: 'missing-agent', OPENCLAW_MCP_BRIDGE_BEARER_02: randomBytes(32).toString('hex') }, stdio: 'inherit',
+    OPENCLAW_MCP_BRIDGE_BEARER: bridgeToken }, stdio: 'inherit',
 });
-assert.deepEqual(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.agentIds, ['bridge-test']);
-assert.equal(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.credentials['bridge-test'], bridgeToken);
+assert.equal(JSON.parse(await readFile(configPath, 'utf8')).plugins.entries[ID].config.bearer, bridgeToken);
 let previousToken;
 for (let attempt = 0; attempt < 2; attempt++) {
   const child = spawn('node_modules/.bin/openclaw', ['gateway', 'run', '--allow-unconfigured'], {
@@ -45,7 +43,7 @@ for (let attempt = 0; attempt < 2; attempt++) {
     while (Date.now() < deadline && exit === undefined) {
       try {
         const current = JSON.parse(await readFile(configPath, 'utf8'));
-        token = current.plugins.entries[ID].config.credentials?.['bridge-test'];
+        token = current.plugins.entries[ID].config.bearer;
         if (token) {
           const res = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST',
             headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json', Accept: 'application/json, text/event-stream', 'MCP-Protocol-Version': '2025-11-25' },

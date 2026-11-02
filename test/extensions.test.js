@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { HandlerRegistry } from '../src/extensions.js';
+test('bundled Python handler runs, records native delivery and deduplicates',async t=>{
+ const root=mkdtempSync(join(tmpdir(),'handler-test-'));
+ t.after(()=>rmSync(root,{recursive:true,force:true}));
+ const registry=new HandlerRegistry(root);
+ assert(registry.list().some(h=>h.name==='litellm-free'));
+ const event={schema_version:1,source:'litellm-free',event:'import_failed',event_id:'test-1'};
+ let sends=0;
+ const deliver=async result=>{sends++;assert.match(result.text,/Import failed/);return {status:'sent'};};
+ const signal=new AbortController().signal;
+ const result=await registry.invoke('litellm-free',event,signal,deliver);
+ assert.equal(result.delivered,true);
+ assert.equal((await registry.invoke('litellm-free',event,signal,deliver)).status,'duplicate');
+ assert.equal(sends,1);
+ await assert.rejects(registry.invoke('litellm-free',{...event,event_id:'bad',schema_version:2},signal,deliver),/invalid_event/);
+});

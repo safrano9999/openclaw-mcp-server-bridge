@@ -6,6 +6,8 @@ on:
     tags: ['20*.*.*']
   pull_request:
   workflow_dispatch:
+env:
+  LITELLM_FREE_REF: bc649c24140fa2539c7aae94ad6975e3ea4578a2
 permissions:
   contents: read
 concurrency:
@@ -21,13 +23,21 @@ jobs:
         openclaw: ['2026.9.4', '2026.10.6']
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch pinned LiteLLM-Free handler source
+        uses: actions/checkout@v4
+        with:
+          repository: f24sales/litellm-free
+          ref: ${{ env.LITELLM_FREE_REF }}
+          path: .handler-source
+      - name: Bundle the handler and refresh runtime
+        run: python3 .handler-source/mcp/stage.py extensions
       - uses: actions/setup-node@v4
         with:
           node-version: '26.12.1'
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
-      - name: Test injected agent initialization
+      - name: Test shared authentication initialization
         run: python3 -m unittest discover -s test -p test_init.py -v
       - run: npm run build
       - name: Package installable ZIP
@@ -54,6 +64,14 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch pinned LiteLLM-Free handler source
+        uses: actions/checkout@v4
+        with:
+          repository: f24sales/litellm-free
+          ref: ${{ env.LITELLM_FREE_REF }}
+          path: .handler-source
+      - name: Bundle the handler and refresh runtime
+        run: python3 .handler-source/mcp/stage.py extensions
       - uses: actions/setup-node@v4
         with:
           node-version: '26.12.1'
@@ -68,7 +86,7 @@ jobs:
           set -euo pipefail
           gh release create "$GITHUB_REF_NAME" openclaw-mcp-server-bridge-latest.zip openclaw-mcp-server-bridge-latest.zip.sha256 \
             --verify-tag --title "$GITHUB_REF_NAME" \
-            --notes 'Agent-isolated MCP bridge. Public SDK and archive installation checked on OpenClaw 2026.9.4 and 2026.10.6. See README for delivery guarantees and scope.'
+            --notes 'Generic MCP and notification bridge with configured defaults and bundled LiteLLM-Free handler. Public SDK and archive installation checked on OpenClaw 2026.9.4 and 2026.10.6. See README for delivery guarantees and scope.'
           if gh release view latest >/dev/null 2>&1; then
             gh release upload latest openclaw-mcp-server-bridge-latest.zip openclaw-mcp-server-bridge-latest.zip.sha256 --clobber
             gh release edit latest --notes "Current source tag: $GITHUB_REF_NAME"

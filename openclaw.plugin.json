@@ -1,74 +1,23 @@
 {
   "id": "openclaw-mcp-server-bridge",
   "name": "OpenClaw MCP Server Bridge",
-  "description": "Expose selected agents' admitted channel messages through an authenticated MCP endpoint.",
-  "activation": {
-    "onStartup": true
-  },
+  "description": "MCP access, direct notifications and deterministic Python event handlers.",
+  "activation": { "onStartup": true },
   "configSchema": {
-    "type": "object",
-    "additionalProperties": false,
+    "type": "object", "additionalProperties": false,
     "properties": {
-      "agentIds": {
-        "type": "array",
-        "maxItems": 64,
-        "uniqueItems": true,
-        "items": {
-          "type": "string",
-          "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$"
-        },
-        "default": []
-      },
-      "credentials": {
-        "type": "object",
-        "maxProperties": 64,
-        "additionalProperties": {
-          "type": "string",
-          "pattern": "^[A-Za-z0-9_-]{43,128}$"
-        }
-      },
-      "allowedOrigins": {
-        "type": "array",
-        "maxItems": 16,
-        "uniqueItems": true,
-        "items": {
-          "type": "string",
-          "maxLength": 256
-        },
-        "default": []
-      },
-      "direct": {
-        "type": "boolean",
-        "default": false
-      },
-      "directFifo": {
-        "type": "boolean",
-        "default": false
-      }
+      "bearer": { "type": "string", "pattern": "^$|^[A-Za-z0-9_-]{43,128}$", "default": "" },
+      "defaultChannel": { "type": "string", "pattern": "^$|^[a-z0-9][a-z0-9_-]{0,63}$", "default": "" },
+      "allowedOrigins": { "type": "array", "maxItems": 16, "uniqueItems": true, "items": { "type": "string", "maxLength": 256 }, "default": [] },
+      "direct": { "type": "boolean", "default": false },
+      "directFifo": { "type": "boolean", "default": false }
     }
   },
   "uiHints": {
-    "agentIds": {
-      "label": "MCP agents",
-      "help": "Existing agent IDs whose ordinary channel turns are handled by MCP."
-    },
-    "credentials": {
-      "label": "Injected agent bearers",
-      "sensitive": true,
-      "advanced": true
-    },
-    "credentials.*": {
-      "sensitive": true
-    },
-    "allowedOrigins": {
-      "label": "Allowed browser origins",
-      "advanced": true
-    },
-    "direct": {
-      "label": "Direct webhook delivery"
-    },
-    "directFifo": {
-      "label": "Also enqueue direct webhooks"
-    }
+    "bearer": { "label": "Bridge bearer", "sensitive": true },
+    "defaultChannel": { "label": "Default agent's preferred channel" },
+    "allowedOrigins": { "label": "Allowed browser origins", "advanced": true },
+    "direct": { "label": "Direct webhook delivery" },
+    "directFifo": { "label": "Also enqueue direct webhooks" }
   }
 }

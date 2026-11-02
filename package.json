@@ -1,9 +1,9 @@
 {
   "name": "openclaw-mcp-server-bridge",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
-  "description": "Agent-isolated, in-process MCP bridge for OpenClaw channel messages",
+  "description": "Generic OpenClaw MCP server, direct notifications and Python event handlers",
   "license": "UNLICENSED",
   "scripts": {
     "test": "node --test test/*.test.js",

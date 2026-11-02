@@ -24,7 +24,7 @@ try {
   const context = buildOutboundSessionContext({ cfg: {}, sessionKey, agentId: 'bridge-test', conversationType: 'direct' });
   assert.equal(context.key, sessionKey); assert.equal(context.agentId, 'bridge-test');
   let config = { agents: { entries: { 'bridge-test': {} } }, session: { store: join(scratch, 'sessions.json') },
-    plugins: { entries: { [ID]: { enabled: true, config: { agentIds: ['bridge-test'], credentials: { 'bridge-test': 'a'.repeat(64) } } } } } };
+    plugins: { entries: { [ID]: { enabled: true, config: { bearer: 'a'.repeat(64) } } } } };
   let hook, service, route;
   const routes = [];
   plugin.register({ config, pluginConfig: config.plugins.entries[ID].config,
@@ -39,7 +39,7 @@ try {
   const result = await hook({ sessionKey, sendPolicy: 'allow', originatingChannel: 'telegram', originatingTo: '123', originatingAccountId: 'default',
     ctx: { AgentId: 'bridge-test', SessionKey: sessionKey, InboundAccessAuthorized: true, rawText: 'host contract', ChatId: '123', MessageSid: '1' } },
     { recordProcessed(outcome) { assert.equal(outcome, 'completed'); }, markIdle() {} });
-  assert.equal(result.handled, true); assert.equal(result.counts.final, 0);
+  assert.equal(result, undefined);
   await service.stop();
   console.log('Public SDK imports, real session access, plugin registration and inbound capture passed.');
 } finally { await rm(scratch, { recursive: true, force: true }); }
