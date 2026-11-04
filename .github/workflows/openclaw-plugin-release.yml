@@ -7,7 +7,7 @@ on:
   pull_request:
   workflow_dispatch:
 env:
-  LITELLM_FREE_REF: fad6ab1
+  LITELLM_FREE_REF: 6b8c893
 permissions:
   contents: read
 concurrency:
