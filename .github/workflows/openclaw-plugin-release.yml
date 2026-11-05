@@ -7,7 +7,7 @@ on:
   pull_request:
   workflow_dispatch:
 env:
-  LITELLM_FREE_REF: ec90093
+  LITELLM_FREE_REF: ec90093347c29cacb82254773d48bd0b5a759c0e
 permissions:
   contents: read
 concurrency:
@@ -42,6 +42,8 @@ jobs:
       - run: npm run build
       - name: Package installable ZIP
         run: bash .github/scripts/openclaw_plugin_zip.sh
+      - name: Verify ZIP contains the pinned refresh helper
+        run: unzip -p openclaw-mcp-server-bridge-latest.zip extensions/litellm-free/lib/ops/refresh_common.py | cmp - .handler-source/ops/refresh_common.py
       - name: Install exact OpenClaw host on the hosted runner
         env:
           OPENCLAW_VERSION: ${{ matrix.openclaw }}
@@ -79,6 +81,8 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: bash .github/scripts/openclaw_plugin_zip.sh
+      - name: Verify ZIP contains the pinned refresh helper
+        run: unzip -p openclaw-mcp-server-bridge-latest.zip extensions/litellm-free/lib/ops/refresh_common.py | cmp - .handler-source/ops/refresh_common.py
       - name: Publish verified archive and checksum
         env:
           GH_TOKEN: ${{ github.token }}
